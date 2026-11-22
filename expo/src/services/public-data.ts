@@ -1,7 +1,7 @@
 import { requireSupabase } from '@/lib/supabase';
 import { hostingApiUrl } from '@/lib/hosting-api-url';
 
-export type PublicResourceKind = 'program' | 'plan' | 'worksheet' | 'exam' | 'video';
+export type PublicResourceKind = 'program' | 'plan' | 'worksheet' | 'exam' | 'video' | 'oral_presentation';
 
 export type PublicResource = {
   id: string;
@@ -24,6 +24,7 @@ const DEFINITIONS: Record<PublicResourceKind, { table: string; columns: string; 
   worksheet: { table: 'worksheets', columns: 'id,title,subject,topic,learner_stage,level_or_band,worksheet_type,source_type,plan_language,student_material_language,author_name,subject_display,is_public,status,created_at,updated_at', order: 'updated_at' },
   exam: { table: 'quick_exams', columns: 'id,title,subject,topic,learner_stage,level,exam_length,exercise_types,plan_language,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
   video: { table: 'videos', columns: 'id,title,subject,custom_subject_name,topic,description,video_id,youtube_url,thumbnail_url,learner_stage,level_or_band,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
+  oral_presentation: { table: 'oral_presentations', columns: 'id,title,subject,topic,learner_stage,level_or_band,exercise_type,plan_language,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
 };
 
 function text(value: unknown) {
@@ -177,7 +178,7 @@ export async function getPublicResourceDetail(kind: PublicResourceKind, id: stri
 export async function getPublicResourcePreviewImages(kind: PublicResourceKind, ids: string[]): Promise<Record<string, string>> {
   if (!ids.length || kind === 'video') return {};
   if (kind === 'exam') return {};
-  const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data' };
+  const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data', oral_presentation: 'oral_data' };
   const { data, error } = await requireSupabase().from(DEFINITIONS[kind].table).select(`id,${payloadColumn[kind]}`).in('id', ids).eq('is_public', true);
   if (error) return {};
   return Object.fromEntries(((data ?? []) as unknown as Record<string, unknown>[]).flatMap((row) => { const imageUrl = extractResourceImageUrl(row); return imageUrl ? [[String(row.id), imageUrl]] : []; }));

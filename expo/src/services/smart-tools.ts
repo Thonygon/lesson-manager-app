@@ -6,9 +6,10 @@ import { mergePreviousProgramRows, previousProgramComplete, previousProgramFromS
 import { findGenerationMatches, type GenerationMatch } from '@/server/generation-reuse';
 import { programReady } from '../shared/program-completion';
 import { uniqueProgramTopics } from '@/lib/learning-program-topics';
+import { oralDocumentIssues, oralFamily } from '@/shared/oral-presentation';
 
-export type SmartToolKind = 'plan' | 'worksheet' | 'exam' | 'program';
-export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; generationId?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string; previousProgramId?: string; reuseConfirmed?: boolean };
+export type SmartToolKind = 'plan' | 'worksheet' | 'exam' | 'program' | 'oral_presentation';
+export type SmartToolInput = { kind: SmartToolKind; subject: string; customSubject?: string; topic: string; stage: string; level: string; language: string; planLanguage?: string; nativeLanguage?: string; generationMode?: string; generationId?: string; lessonPurpose?: string; objective?: string; worksheetType?: string; oralExerciseType?: string; maxDurationSeconds?: number; examTitle?: string; examLength?: string; exerciseTypes?: string[]; instructions?: string; requestedUnits?: number; requestedLessons?: number; visibility?: string; programTrack?: string; examTarget?: string; duration: string; questionCount?: number; notes: string; programId?: string; programTopicId?: string; previousProgramId?: string; reuseConfirmed?: boolean };
 export class GenerationReuseError extends Error {
   constructor(public readonly matches: GenerationMatch[], message: string) { super(message); this.name = 'GenerationReuseError'; }
 }
@@ -104,7 +105,7 @@ export async function getSimilarTeachingResources(input: SmartToolInput): Promis
   const base = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
   const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
   const subject = input.subject === 'Other' ? input.customSubject?.trim() || '' : input.subject.toLowerCase().replaceAll(' ', '_');
-  return findGenerationMatches(base, key, data.session.access_token, data.session.user.id, { kind: input.kind, subject, topic: input.topic.trim(), stage: input.stage, level: input.level, lessonPurpose: input.lessonPurpose, worksheetType: input.worksheetType, exerciseTypes: input.exerciseTypes, programTrack: input.programTrack, examTarget: input.examTarget });
+  return findGenerationMatches(base, key, data.session.access_token, data.session.user.id, { kind: input.kind, subject, topic: input.topic.trim(), stage: input.stage, level: input.level, lessonPurpose: input.lessonPurpose, worksheetType: input.kind === 'oral_presentation' ? input.oralExerciseType : input.worksheetType, exerciseTypes: input.exerciseTypes, programTrack: input.programTrack, examTarget: input.examTarget });
 }
 
 export async function generateMaterial(input: SmartToolInput, onProgress?: (message: string) => void, studentNameForRedaction = '', studentIdForEvidence = ''): Promise<GeneratedMaterial> {
@@ -119,7 +120,6 @@ export async function generateMaterial(input: SmartToolInput, onProgress?: (mess
   if (input.kind !== 'program') return request(input);
   onProgress?.('Building the program scope and sequence…');
   const skeletonResult = await request({ ...input, programPhase: 'skeleton' });
-  const skeleton = skeletonResult.document;
   return skeletonResult;
 }
 
@@ -178,6 +178,13 @@ export async function saveGeneratedMaterial(input: SmartToolInput, document: Rec
   const storedSubject = input.subject === 'Other' && input.customSubject?.trim() ? input.customSubject.trim() : input.subject;
   const makePublic = input.visibility === 'public' && !(await hasCustomBranding());
   const generationOperationId = input.generationMode === 'ai' && input.generationId ? input.generationId : null;
+  if (input.kind === 'oral_presentation') {
+    const issues = oralDocumentIssues(document, oralFamily(storedSubject), input.oralExerciseType || '');
+    if (issues.length) throw new Error(issues.join('; '));
+    const { data: saved, error } = await client.from('oral_presentations').insert({ user_id: uid, title, subject: storedSubject, subject_family: oralFamily(storedSubject), topic: input.topic, learner_stage: input.stage, level_or_band: input.level, exercise_type: input.oralExerciseType, plan_language: input.planLanguage || input.language, student_material_language: input.language, oral_data: document, generation_operation_id: generationOperationId, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single();
+    if (error || !saved) throw error ?? new Error('Oral activity could not be saved.');
+    return { id: String(saved.id) };
+  }
   if (input.kind === 'plan') { const { data: saved, error } = await client.from('lesson_plans').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, lesson_purpose: input.lessonPurpose || 'introduce_concept', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: input.generationMode === 'template' ? 'template' : 'ai', planner_mode: input.generationMode || 'ai', plan_json: document, generation_operation_id: generationOperationId, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
   if (input.kind === 'worksheet') { const { data: saved, error } = await client.from('worksheets').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level_or_band: input.level, worksheet_type: input.worksheetType || 'mixed_practice', plan_language: input.planLanguage || input.language, student_material_language: input.language, source_type: 'ai', worksheet_json: document, generation_operation_id: generationOperationId, author_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'Teacher', subject_display: storedSubject, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
   if (input.kind === 'exam') { const sections = Array.isArray(document.sections) ? document.sections as Record<string, unknown>[] : []; const answerKey = document.answer_key || { sections: sections.map((section) => ({ title: section.title, answers: section.answers || [] })) }; const { data: saved, error } = await client.from('quick_exams').insert({ user_id: uid, title, subject: storedSubject, topic: input.topic, learner_stage: input.stage, level: input.level, exam_length: input.examLength || 'medium', exercise_types: input.exerciseTypes?.length ? input.exerciseTypes : ['mixed'], plan_language: input.planLanguage || input.language, student_material_language: input.language, exam_data: document, answer_key: answerKey, generation_operation_id: generationOperationId, is_public: makePublic, status: 'active', created_at: now, updated_at: now }).select('id').single(); if (error || !saved) throw error ?? new Error('Resource could not be saved.'); return { id: String(saved.id) }; }
@@ -257,7 +264,7 @@ export async function setGeneratedMaterialVisibility(kind: SmartToolKind, id: st
     const { data: program, error } = await client.from('learning_programs').select('program_data').eq('id', id).eq('user_id', data.user.id).maybeSingle();
     if (error || !program || !programReady(program.program_data as Record<string, unknown>)) throw error ?? new Error('Complete every program unit before publishing.');
   }
-  const table = { plan: 'lesson_plans', worksheet: 'worksheets', exam: 'quick_exams', program: 'learning_programs' }[kind];
+  const table = { plan: 'lesson_plans', worksheet: 'worksheets', exam: 'quick_exams', program: 'learning_programs', oral_presentation: 'oral_presentations' }[kind];
   const values = kind === 'program' ? { is_public: visibility === 'public', visibility } : { is_public: visibility === 'public' };
   const { data: updated, error } = await client.from(table).update(values).eq('id', id).eq('user_id', data.user.id).select('id').single();
   if (error || !updated) throw error ?? new Error('Resource visibility could not be updated.');
@@ -268,11 +275,16 @@ export async function updateGeneratedMaterial(kind: SmartToolKind, id: string, d
   const client = requireSupabase();
   const { data, error: authError } = await client.auth.getUser();
   if (authError || !data.user) throw authError ?? new Error('Your session has expired.');
+  if (kind === 'oral_presentation') {
+    const issues = oralDocumentIssues(document, oralFamily(String(document.subject || '')), String(document.exercise_type || ''));
+    if (issues.length) throw new Error(issues.join(' · '));
+  }
   const config = {
     plan: { table: 'lesson_plans', values: { title: String(document.title || ''), plan_json: document } },
     worksheet: { table: 'worksheets', values: { title: String(document.title || ''), worksheet_json: document } },
     exam: { table: 'quick_exams', values: { title: String(document.title || ''), exam_data: document, answer_key: document.answer_key || {} } },
     program: { table: 'learning_programs', values: { title: String(document.title || ''), program_data: document } },
+    oral_presentation: { table: 'oral_presentations', values: { title: String(document.title || ''), oral_data: document } },
   }[kind];
   const { data: updated, error } = await client.from(config.table).update(config.values).eq('id', id).eq('user_id', data.user.id).select('id').single();
   if (error || !updated) throw error ?? new Error('Resource changes could not be saved.');

@@ -8,7 +8,7 @@ import { useAppPreferences } from '@/providers/app-preferences';
 import { checkedHelpScreenshot, myHelpTickets, submitHelpTicket, type HelpKind, type HelpScreenshot, type HelpTicket, type PrivacyScope } from '@/services/help-center';
 import { colors } from '@/theme';
 
-const GUIDES = ['start', 'connections', 'lessons', 'payments', 'resources', 'generation', 'reviews', 'rights'] as const;
+const GUIDES = ['start', 'connections', 'lessons', 'payments', 'resources', 'generation', 'reviews', 'oral', 'rights'] as const;
 const KINDS: HelpKind[] = ['bug', 'privacy_rights', 'security_incident', 'idea', 'accessibility', 'other'];
 const PRIVACY_SCOPES: PrivacyScope[] = ['access', 'rectification', 'erasure', 'restriction', 'portability', 'objection', 'other'];
 

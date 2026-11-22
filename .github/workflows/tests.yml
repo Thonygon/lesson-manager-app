@@ -150,6 +150,7 @@ jobs:
           node scripts/check-ai-provider-chain.cjs
           node scripts/check-bounded-ai-request.cjs
           node scripts/check-resource-quality.cjs
+          node scripts/check-oral-presentation.cjs
           node scripts/check-teacher-connection-accept.cjs
           node scripts/check-teacher-connection-identities.cjs
 

@@ -1,4 +1,4 @@
-export type GenerationKind = 'plan' | 'worksheet' | 'exam' | 'program';
+export type GenerationKind = 'plan' | 'worksheet' | 'exam' | 'program' | 'oral_presentation';
 export type GenerationMatch = { id: string; kind: GenerationKind; title: string; topic: string; source: 'own' | 'community'; bucket: 'very_close' | 'close' | 'related'; score: number };
 type SearchInput = { kind: GenerationKind; subject: string; topic: string; stage: string; level: string; lessonPurpose?: string; worksheetType?: string; exerciseTypes?: string[]; programTrack?: string; examTarget?: string };
 type StoredRow = Record<string, unknown>;
@@ -8,6 +8,7 @@ const sources: Record<GenerationKind, { table: string; level: string; subtype: s
   worksheet: { table: 'worksheets', level: 'level_or_band', subtype: 'worksheet_type', fields: 'id,user_id,is_public,status,title,topic,subject,learner_stage,level_or_band,worksheet_type' },
   exam: { table: 'quick_exams', level: 'level', subtype: 'exercise_types', fields: 'id,user_id,is_public,status,title,topic,subject,learner_stage,level,exercise_types' },
   program: { table: 'learning_programs', level: 'level_or_band', subtype: '', fields: 'id,user_id,is_public,status,title,subject,learner_stage,level_or_band,builder_config' },
+  oral_presentation: { table: 'oral_presentations', level: 'level_or_band', subtype: 'exercise_type', fields: 'id,user_id,is_public,status,title,topic,subject,learner_stage,level_or_band,exercise_type' },
 };
 const normalize = (value: unknown) => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[_\W]+/g, ' ').trim();
 const tokens = (value: unknown) => new Set(normalize(value).split(' ').filter((token) => token.length > 2));

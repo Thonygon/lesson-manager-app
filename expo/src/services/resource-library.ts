@@ -7,6 +7,7 @@ import { worksheetHasSource, worksheetReferencesSource } from '@/lib/worksheet-s
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
 import { youtubeVideoId } from '@/lib/youtube';
 import { canonicalChoice } from '@/services/student-practice-answer-normalization';
+import { oralFamily } from '@/shared/oral-presentation';
 import { extractResourceImageUrl, type PublicResource, type PublicResourceKind } from '@/services/public-data';
 import type { TeacherConnection } from '@/services/teacher-students';
 
@@ -38,6 +39,7 @@ const DEFINITIONS: Record<PublicResourceKind, { table: string; columns: string; 
   worksheet: { table: 'worksheets', columns: 'id,user_id,title,subject,topic,learner_stage,level_or_band,worksheet_type,source_type,author_name,subject_display,is_public,status,created_at,updated_at', order: 'updated_at' },
   exam: { table: 'quick_exams', columns: 'id,user_id,title,subject,topic,learner_stage,level,exam_length,exercise_types,plan_language,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
   video: { table: 'videos', columns: 'id,user_id,title,subject,custom_subject_name,topic,description,video_id,youtube_url,thumbnail_url,learner_stage,level_or_band,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
+  oral_presentation: { table: 'oral_presentations', columns: 'id,user_id,title,subject,topic,learner_stage,level_or_band,exercise_type,plan_language,student_material_language,is_public,status,created_at,updated_at', order: 'updated_at' },
 };
 
 function clean(value: unknown) {
@@ -52,7 +54,7 @@ function normalize(kind: PublicResourceKind, row: Record<string, unknown>): Publ
     topic: clean(row.topic) || clean(row.lesson_purpose),
     stage: clean(row.learner_stage), level: clean(row.level_or_band) || clean(row.level),
     author: clean(row.author_name),
-    description: clean(row.program_overview) || clean(row.description) || clean(row.lesson_purpose) || clean(row.worksheet_type) || clean(row.exam_length),
+    description: clean(row.program_overview) || clean(row.description) || clean(row.lesson_purpose) || clean(row.worksheet_type) || clean(row.exam_length) || clean(row.exercise_type).replaceAll('_',' '),
     imageUrl: extractResourceImageUrl(row),
     createdAt: clean(row.updated_at) || clean(row.created_at), raw: row,
   };
@@ -275,7 +277,7 @@ export async function saveLessonPlanCover(id: string, cover: Record<string, unkn
 
 export async function getResourcePreviewImages(kind: PublicResourceKind, ids: string[]): Promise<Record<string, string>> {
   if (!ids.length || kind === 'video') return {};
-  const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data' };
+  const payloadColumn: Record<Exclude<PublicResourceKind, 'video'>, string> = { program: 'program_data', plan: 'plan_json', worksheet: 'worksheet_json', exam: 'exam_data', oral_presentation: 'oral_data' };
   const column = payloadColumn[kind];
   const { data, error } = await requireSupabase().from(DEFINITIONS[kind].table).select(`id,${column}`).in('id', ids);
   if (error) return {};
@@ -300,7 +302,7 @@ export async function updateResourceState(kind: PublicResourceKind, id: string, 
   }
   const { data, error } = await client.from(DEFINITIONS[kind].table).update(payload).eq('id', id).eq('user_id', userData.user.id).select('id').maybeSingle();
   if (error || !data) throw error ?? new Error('Only the owner can change this resource.');
-  const assignmentSource = { plan: ['lesson_plan_topic', 'lesson_plan_builder'], worksheet: ['worksheet', 'worksheet_builder'], exam: ['exam', 'exam_builder'], video: ['video', 'video_library'] } as const;
+  const assignmentSource = { plan: ['lesson_plan_topic', 'lesson_plan_builder'], worksheet: ['worksheet', 'worksheet_builder'], exam: ['exam', 'exam_builder'], video: ['video', 'video_library'], oral_presentation: ['oral_presentation', 'oral_presentation_builder'] } as const;
   if (archiveChange && kind !== 'program') {
     const [assignmentType, sourceType] = assignmentSource[kind];
     // Older databases may not have these additive columns. Keep the resource
@@ -330,6 +332,7 @@ export async function updateResourceMetadata(kind: PublicResourceKind, id: strin
   const payload: Record<string, unknown> = { title: updates.title.trim() };
   payload.topic = updates.topic?.trim() || '';
   payload.subject = updates.subject?.trim() || '';
+  if (kind === 'oral_presentation') payload.subject_family = oralFamily(String(payload.subject));
   payload.learner_stage = updates.learnerStage?.trim() || '';
   payload[kind === 'exam' ? 'level' : 'level_or_band'] = updates.level?.trim() || '';
   const { error } = await client.from(DEFINITIONS[kind].table).update(payload).eq('id', id).eq('user_id', userData.user.id); if (error) throw error;
@@ -421,7 +424,7 @@ export async function updateVideoResource(id: string, input: { youtubeUrl: strin
   const saved = await client.from('videos').update(payload).eq('id', id).eq('user_id', userData.user.id).select('id').maybeSingle(); if (saved.error || !saved.data) throw saved.error ?? new Error('resources.videoSaveFailed');
 }
 
-export async function assignResource(input: { resource: PublicResource; detail: Record<string, unknown>; connection: TeacherConnection; dueDate?: string; teacherNote?: string }) {
+export async function assignResource(input: { resource: PublicResource; detail: Record<string, unknown>; connection: TeacherConnection; dueDate?: string; teacherNote?: string; oralAuthorizationAcknowledged?: boolean }) {
   const client = requireSupabase(); const { data: userData, error: userError } = await client.auth.getUser(); if (userError || !userData.user) throw userError ?? new Error('Your session has expired.'); const uid = userData.user.id;
   if (String(input.connection.status) !== 'active' || String(input.connection.teacher_id) !== uid) throw new Error('Choose an active student connection.');
   if (input.resource.kind === 'program') {
@@ -444,7 +447,7 @@ export async function assignResource(input: { resource: PublicResource; detail: 
     return;
   }
   const normalizedSubject = canonicalSubjectKey(input.resource.subject); const activeScopes = input.connection.subjects.filter((row) => String(row.status) === 'active'); const scope = activeScopes.find((row) => canonicalSubjectKey(row.subject_key || row.subject_label) === normalizedSubject); if (!scope) throw new Error(`This student is not connected for ${input.resource.subject || 'this subject'}.`);
-  const typeMap = { plan: 'lesson_plan_topic', worksheet: 'worksheet', exam: 'exam', video: 'video' } as const; const sourceMap = { plan: 'lesson_plan_builder', worksheet: 'worksheet_builder', exam: 'exam_builder', video: 'video_library' } as const; const kind = input.resource.kind as keyof typeof typeMap; const now = new Date().toISOString();
+  const typeMap = { plan: 'lesson_plan_topic', worksheet: 'worksheet', exam: 'exam', video: 'video', oral_presentation: 'oral_presentation' } as const; const sourceMap = { plan: 'lesson_plan_builder', worksheet: 'worksheet_builder', exam: 'exam_builder', video: 'video_library', oral_presentation: 'oral_presentation_builder' } as const; const kind = input.resource.kind as keyof typeof typeMap; const now = new Date().toISOString();
   const parsedSourceId = Number(input.resource.id);
   const numericSourceId = Number.isSafeInteger(parsedSourceId) && parsedSourceId > 0 ? parsedSourceId : null;
   const existing = client.from('teacher_assignments').select('id').eq('teacher_id', uid).eq('student_id', input.connection.student_id).eq('assignment_type', typeMap[kind]).neq('status', 'archived').limit(1);
@@ -452,6 +455,14 @@ export async function assignResource(input: { resource: PublicResource; detail: 
   if (duplicate.error) throw duplicate.error;
   if (duplicate.data?.length) throw new Error('resources.alreadyAssigned');
   const snapshot = buildAssignmentSnapshot(input.detail) as Record<string, unknown> || {};
+  if (kind === 'oral_presentation') {
+    if (input.oralAuthorizationAcknowledged !== true) throw new Error('oral.teacherAuthorizationRequired');
+    const oralData = input.detail.oral_data;
+    if (!oralData || typeof oralData !== 'object' || Array.isArray(oralData)) throw new Error('The oral activity is incomplete.');
+    snapshot.oral_data = oralData;
+    snapshot.audio_authorization_acknowledged = true;
+    snapshot.audio_authorization_acknowledged_at = now;
+  }
   if (!numericSourceId) snapshot.id = input.resource.id;
   if ((kind === 'worksheet' || kind === 'exam') && !hasUsablePracticeQuestions(materialFromAssignment({ assignment_type: typeMap[kind], content_snapshot: snapshot }))) throw new Error('resources.assignmentContentUnavailable');
   const { error } = await client.from('teacher_assignments').insert({ link_id: input.connection.id, subject_scope_id: scope.id, teacher_id: uid, student_id: input.connection.student_id, assignment_type: typeMap[kind], source_type: sourceMap[kind], source_record_id: numericSourceId, title: input.resource.title, subject_key: canonicalSubjectKey(scope.subject_key || normalizedSubject), subject_label: canonicalSubjectLabel(scope.subject_label || input.resource.subject), topic: input.resource.topic || '', teacher_note: input.teacherNote?.trim() || '', content_snapshot: snapshot, status: 'assigned', due_at: input.dueDate ? new Date(`${input.dueDate}T00:00:00Z`).toISOString() : null, assigned_at: now, created_at: now, updated_at: now }); if (error) throw error;

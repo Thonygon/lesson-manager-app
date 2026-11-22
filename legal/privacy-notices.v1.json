@@ -1,6 +1,6 @@
 {
-  "version": "2026-11-16.1",
-  "effective_date": "2026-11-16",
+  "version": "2026-11-21.1",
+  "effective_date": "2026-11-21",
   "controller": {
     "name": "Anthony Gonzalez",
     "trade_name": "Master Classio",
@@ -47,7 +47,8 @@
           "data_title": "Information collected",
           "data": [
             "We receive account credentials and authentication identifiers through Supabase or Google sign-in; profile fields you provide (such as name, role, contact details, teaching preferences and optional photo); and records created in the app, including lessons, schedules, administrative teacher payment records, resources, assignments, programs and support or feedback messages. We also record bounded security, usage and diagnostic events. Google Calendar data is used only if you connect that feature.",
-            "For authenticated app visits, the hosting server estimates a country and records a session count by country and day for administrator service monitoring. This Classio visit record does not contain your IP address, route or device fingerprint. A short-lived account/session event is used to avoid duplicate counts and is removed after 30 days; country/day totals are removed after approximately 13 months. Public website visits are excluded from this count."
+            "For authenticated app visits, the hosting server estimates a country and records a session count by country and day for administrator service monitoring. This Classio visit record does not contain your IP address, route or device fingerprint. A short-lived account/session event is used to avoid duplicate counts and is removed after 30 days; country/day totals are removed after approximately 13 months. Public website visits are excluded from this count.",
+            "For an assigned oral presentation, Classio receives a short audio recording, its duration and file type, the assignment and attempt identifiers, and the teacher’s rubric scores and feedback. The audio is private to the student and the assigning teacher; it is not a public resource."
           ],
           "purpose_title": "Purposes and legal grounds",
           "purposes": [
@@ -66,11 +67,14 @@
           "lead": "This notice is for students, parents or guardians, including learners whom a teacher records in Classio without a student account.",
           "data_title": "Student information",
           "data": [
-            "A teacher may add your name, contact details, subject, level, program progress, lessons, assignments and administrative payment notes to a private teaching record. If you have a Classio account, we also process your account and profile, attempts, answers, scores, comments, requests for review and resource activity. A teacher-managed record can exist without an account; linking an account can transfer applicable program progress to it."
+            "A teacher may add your name, contact details, subject, level, program progress, lessons, assignments and administrative payment notes to a private teaching record. If you have a Classio account, we also process your account and profile, attempts, answers, scores, comments, requests for review and resource activity. A teacher-managed record can exist without an account; linking an account can transfer applicable program progress to it.",
+            "If you submit an oral presentation, we store your voice recording with the assignment, its duration and file type, and the teacher’s rubric scores and feedback. Voice can identify a person; do not record other people or disclose private details in your answer."
           ],
           "purpose_title": "How this information is used",
           "purposes": [
-            "The teacher decides what to enter in their private teaching record and must provide information about their own teaching and administrative purposes. Master Classio provides the workspace and determines how its account, security and app functions operate. For an account holder, core account functions are provided under the service relationship (GDPR Article 6(1)(b); KVKK Article 5(2)(c)); security uses the grounds described in the app notice. For teacher-entered records, the teacher must identify and explain the lawful ground that applies to their activity. Contact the teacher or Classio to identify the correct route for a request."
+            "The teacher decides what to enter in their private teaching record and must provide information about their own teaching and administrative purposes. Master Classio provides the workspace and determines how its account, security and app functions operate. For an account holder, core account functions are provided under the service relationship (GDPR Article 6(1)(b); KVKK Article 5(2)(c)); security uses the grounds described in the app notice. For teacher-entered records, the teacher must identify and explain the lawful ground that applies to their activity. Contact the teacher or Classio to identify the correct route for a request.",
+            "The recording lets the assigning teacher listen, assess the oral task and give feedback. Classio does not automatically transcribe, grade, train AI on, or publish the recording. The teacher reviews it; you can preview and discard a recording before submitting.",
+            "For a child, the teacher and parent or guardian must ensure that the assignment and recording are authorized under applicable rules. The learner can choose not to start a recording and ask the teacher for an alternative. Contact us about access, deletion or an accessibility barrier."
           ],
           "purpose_items": [
             "Classio uses learning level, covered topics, program progress and practice results to suggest study resources. A teacher can review recommendations and correct scores. These suggestions do not by themselves decide access to education or make a legal decision about you.",
@@ -89,7 +93,8 @@
         {
           "title": "How long information remains",
           "paragraphs": [
-            "We keep account and teaching records while needed to provide the service and while the teacher maintains the record. A valid deletion or correction request is assessed against the purpose and any duty to retain information. Teacher administrative payment records, security evidence and records needed for legal claims may remain after an account closes. Technical events and AI quality records are subject to purpose-specific retention controls; there is no single period for every record. We can explain the current criterion for a particular record on request."
+            "We keep account and teaching records while needed to provide the service and while the teacher maintains the record. A valid deletion or correction request is assessed against the purpose and any duty to retain information. Teacher administrative payment records, security evidence and records needed for legal claims may remain after an account closes. Technical events and AI quality records are subject to purpose-specific retention controls; there is no single period for every record. We can explain the current criterion for a particular record on request.",
+            "Submitted audio is available to the student and assigning teacher for up to 30 days after submission, then access ends and the private object is queued for deletion. If deletion fails, access stays blocked and the cleanup is retried. The assignment, rubric score and feedback can remain as teaching records under the retention criteria below. A recording that was started but not submitted is queued for deletion after one day."
           ]
         },
         {
@@ -144,7 +149,8 @@
           "data_title": "Datos tratados",
           "data": [
             "Recibimos identificadores y credenciales de autenticación mediante Supabase o el acceso con Google; datos de perfil que proporcionas (como nombre, rol, contacto, preferencias docentes y foto opcional); y registros creados en la app, incluidas clases, horarios, pagos administrativos del docente, recursos, tareas, programas y mensajes de soporte o feedback. También registramos eventos acotados de seguridad, uso y diagnóstico. Los datos de Google Calendar se usan solo si conectas esa función.",
-            "Para las visitas autenticadas a la app, el servidor estima el país y registra el número de sesiones por país y día para supervisar el servicio. Este registro de Classio no contiene tu IP, ruta ni huella del dispositivo. Un evento temporal de cuenta y sesión evita duplicados y se elimina a los 30 días; los totales por país y día se eliminan tras aproximadamente 13 meses. Las visitas al sitio público no se incluyen."
+            "Para las visitas autenticadas a la app, el servidor estima el país y registra el número de sesiones por país y día para supervisar el servicio. Este registro de Classio no contiene tu IP, ruta ni huella del dispositivo. Un evento temporal de cuenta y sesión evita duplicados y se elimina a los 30 días; los totales por país y día se eliminan tras aproximadamente 13 meses. Las visitas al sitio público no se incluyen.",
+            "En una presentación oral asignada, Classio recibe una grabación breve, duración y tipo de archivo, identificadores de tarea e intento, y puntuaciones y comentarios del docente. El audio es privado para el estudiante y el docente que asignó la tarea; no es un recurso público."
           ],
           "purpose_title": "Finalidades y fundamentos",
           "purposes": [
@@ -163,11 +169,14 @@
           "lead": "Este aviso se dirige a alumnos, madres, padres y tutores, incluidos quienes figuran en la libreta de un docente sin cuenta Classio.",
           "data_title": "Información del alumno",
           "data": [
-            "Un docente puede añadir nombre, contacto, asignatura, nivel, progreso del programa, clases, tareas y notas administrativas de pago a su registro docente privado. Si tienes cuenta Classio, tratamos además tu cuenta y perfil, intentos, respuestas, notas, comentarios, solicitudes de revisión y actividad con recursos. Puede existir un registro del docente sin cuenta de alumno; al vincular una cuenta puede transferirse el progreso de programa aplicable."
+            "Un docente puede añadir nombre, contacto, asignatura, nivel, progreso del programa, clases, tareas y notas administrativas de pago a su registro docente privado. Si tienes cuenta Classio, tratamos además tu cuenta y perfil, intentos, respuestas, notas, comentarios, solicitudes de revisión y actividad con recursos. Puede existir un registro del docente sin cuenta de alumno; al vincular una cuenta puede transferirse el progreso de programa aplicable.",
+            "Si envías una presentación oral, guardamos tu voz junto a la tarea, duración y tipo de archivo, y las puntuaciones y comentarios del docente. La voz puede identificar a una persona; no grabes a otras personas ni incluyas datos privados en tu respuesta."
           ],
           "purpose_title": "Cómo se usa la información",
           "purposes": [
-            "El docente decide qué registra en su libreta privada y debe informar de sus propias finalidades educativas y administrativas. Master Classio proporciona el espacio de trabajo y determina cómo funcionan sus cuentas, seguridad y herramientas. Para quien tiene cuenta, las funciones esenciales se prestan en el marco del servicio (RGPD art. 6.1.b; KVKK art. 5.2.c); la seguridad usa los fundamentos del aviso de la app. Para los registros introducidos por el docente, este debe identificar y explicar el fundamento que corresponda a su actividad. Contacta con el docente o con Classio para dirigir correctamente una solicitud."
+            "El docente decide qué registra en su libreta privada y debe informar de sus propias finalidades educativas y administrativas. Master Classio proporciona el espacio de trabajo y determina cómo funcionan sus cuentas, seguridad y herramientas. Para quien tiene cuenta, las funciones esenciales se prestan en el marco del servicio (RGPD art. 6.1.b; KVKK art. 5.2.c); la seguridad usa los fundamentos del aviso de la app. Para los registros introducidos por el docente, este debe identificar y explicar el fundamento que corresponda a su actividad. Contacta con el docente o con Classio para dirigir correctamente una solicitud.",
+            "La grabación permite al docente que asignó la tarea escuchar, evaluar y comentar la actividad oral. Classio no transcribe, califica automáticamente, entrena IA con la grabación ni la publica. El docente la revisa; puedes escucharla y descartarla antes de enviarla.",
+            "Si el estudiante es menor, el docente y su padre, madre o representante deben asegurar que la tarea y la grabación estén autorizadas según las reglas aplicables. El estudiante puede no iniciar la grabación y pedir una alternativa al docente. Contáctanos para acceso, supresión o barreras de accesibilidad."
           ],
           "purpose_items": [
             "Classio usa nivel, temas cubiertos, avance del programa y resultados de práctica para sugerir recursos. El docente puede revisar recomendaciones y corregir notas. Estas sugerencias no deciden por sí solas el acceso a la educación ni producen una decisión jurídica sobre ti.",
@@ -186,7 +195,8 @@
         {
           "title": "Conservación",
           "paragraphs": [
-            "Conservamos cuenta y registros docentes mientras sean necesarios para prestar el servicio y el docente mantenga el registro. Evaluamos una solicitud válida de supresión o rectificación según la finalidad y cualquier deber de conservación. Los pagos administrativos del docente, la evidencia de seguridad y los registros necesarios para reclamaciones pueden permanecer tras el cierre de una cuenta. Los eventos técnicos y de calidad de IA tienen controles de retención por finalidad; no existe un plazo único para todos los datos. Podemos explicar el criterio vigente para un registro concreto si lo solicitas."
+            "Conservamos cuenta y registros docentes mientras sean necesarios para prestar el servicio y el docente mantenga el registro. Evaluamos una solicitud válida de supresión o rectificación según la finalidad y cualquier deber de conservación. Los pagos administrativos del docente, la evidencia de seguridad y los registros necesarios para reclamaciones pueden permanecer tras el cierre de una cuenta. Los eventos técnicos y de calidad de IA tienen controles de retención por finalidad; no existe un plazo único para todos los datos. Podemos explicar el criterio vigente para un registro concreto si lo solicitas.",
+            "El audio enviado está disponible para el estudiante y el docente durante un máximo de 30 días desde el envío; después se bloquea el acceso y se programa el borrado del objeto privado. Si falla el borrado, el acceso sigue bloqueado y se reintenta. La tarea, la rúbrica, la nota y los comentarios pueden permanecer como registros docentes según los criterios inferiores. Una grabación iniciada pero no enviada se programa para borrar tras un día."
           ]
         },
         {
@@ -241,7 +251,8 @@
           "data_title": "İşlenen bilgiler",
           "data": [
             "Supabase veya Google ile giriş üzerinden kimlik doğrulama bilgileri ve tanımlayıcıları; sağladığınız ad, rol, iletişim, öğretim tercihleri ve isteğe bağlı fotoğraf gibi profil alanlarını; ayrıca ders, takvim, öğretmenin idari ödeme kayıtları, kaynak, ödev, program ve destek/geri bildirim kayıtlarını işleriz. Sınırlı güvenlik, kullanım ve hata teşhis olayları da kaydedilir. Google Calendar verileri yalnızca bu özelliği bağlarsanız kullanılır.",
-            "Oturum açılmış uygulama ziyaretlerinde sunucu ülkeyi yaklaşık olarak belirler ve hizmeti izlemek için ülke ile güne göre oturum sayısını kaydeder. Bu Classio ziyaret kaydı IP adresinizi, sayfa yolunu veya cihaz parmak izinizi içermez. Çift sayımı önleyen geçici hesap/oturum olayı 30 gün sonra silinir; ülke/gün toplamları yaklaşık 13 ay sonra silinir. Herkese açık site ziyaretleri bu sayıya dahil değildir."
+            "Oturum açılmış uygulama ziyaretlerinde sunucu ülkeyi yaklaşık olarak belirler ve hizmeti izlemek için ülke ile güne göre oturum sayısını kaydeder. Bu Classio ziyaret kaydı IP adresinizi, sayfa yolunu veya cihaz parmak izinizi içermez. Çift sayımı önleyen geçici hesap/oturum olayı 30 gün sonra silinir; ülke/gün toplamları yaklaşık 13 ay sonra silinir. Herkese açık site ziyaretleri bu sayıya dahil değildir.",
+            "Atanmış sözlü sunumda Classio kısa ses kaydını, süresini ve dosya türünü, ödev ve deneme kimliklerini, öğretmenin rubrik puanlarını ve geri bildirimini işler. Ses yalnızca öğrenci ve ödevi veren öğretmen tarafından görülebilir; herkese açık bir kaynak değildir."
           ],
           "purpose_title": "Amaçlar ve hukuki sebepler",
           "purposes": [
@@ -260,11 +271,14 @@
           "lead": "Bu metin, Classio hesabı olmayan ancak öğretmenin kayıtlarında yer alan öğrenciler dahil öğrencilere ve veli/vasilere yöneliktir.",
           "data_title": "Öğrenci bilgileri",
           "data": [
-            "Öğretmen özel öğretim kaydına adınızı, iletişim bilginizi, dersinizi, seviyenizi, program ilerlemenizi, ders ve ödevlerinizi ve idari ödeme notlarını ekleyebilir. Classio hesabınız varsa hesap/profil, denemeler, cevaplar, puanlar, yorumlar, inceleme talepleri ve kaynak etkinliği de işlenir. Hesabınız olmadan öğretmen kaydı bulunabilir; hesap bağlantısı kurulduğunda ilgili program ilerlemesi hesaba aktarılabilir."
+            "Öğretmen özel öğretim kaydına adınızı, iletişim bilginizi, dersinizi, seviyenizi, program ilerlemenizi, ders ve ödevlerinizi ve idari ödeme notlarını ekleyebilir. Classio hesabınız varsa hesap/profil, denemeler, cevaplar, puanlar, yorumlar, inceleme talepleri ve kaynak etkinliği de işlenir. Hesabınız olmadan öğretmen kaydı bulunabilir; hesap bağlantısı kurulduğunda ilgili program ilerlemesi hesaba aktarılabilir.",
+            "Sözlü sunum gönderirseniz ses kaydınızı, süresini ve dosya türünü, öğretmen rubrik puanlarını ve geri bildirimini ödevle birlikte saklarız. Ses bir kişiyi tanımlayabilir; başkalarını kaydetmeyin ve yanıtınızda özel bilgi paylaşmayın."
           ],
           "purpose_title": "Bilgiler nasıl kullanılır",
           "purposes": [
-            "Öğretmen özel kaydına ne yazacağını belirler ve kendi eğitim/idari amaçları hakkında sizi bilgilendirmelidir. Master Classio çalışma alanını sunar; hesap, güvenlik ve uygulama işlevlerinin nasıl çalışacağını belirler. Hesap sahiplerine temel işlevler hizmet ilişkisi kapsamında sağlanır (GDPR m. 6(1)(b); KVKK m. 5(2)(c)); güvenlik için uygulama metnindeki işleme şartları geçerlidir. Öğretmenin girdiği kayıtlar bakımından öğretmen kendi faaliyetinin hukuki sebebini belirlemeli ve açıklamalıdır. Talebinizi doğru kişiye yönlendirmek için öğretmen veya Classio ile iletişime geçin."
+            "Öğretmen özel kaydına ne yazacağını belirler ve kendi eğitim/idari amaçları hakkında sizi bilgilendirmelidir. Master Classio çalışma alanını sunar; hesap, güvenlik ve uygulama işlevlerinin nasıl çalışacağını belirler. Hesap sahiplerine temel işlevler hizmet ilişkisi kapsamında sağlanır (GDPR m. 6(1)(b); KVKK m. 5(2)(c)); güvenlik için uygulama metnindeki işleme şartları geçerlidir. Öğretmenin girdiği kayıtlar bakımından öğretmen kendi faaliyetinin hukuki sebebini belirlemeli ve açıklamalıdır. Talebinizi doğru kişiye yönlendirmek için öğretmen veya Classio ile iletişime geçin.",
+            "Kayıt, ödevi veren öğretmenin sözlü çalışmayı dinleyip değerlendirmesi ve geri bildirim vermesi içindir. Classio kaydı otomatik olarak yazıya dökmez, puanlamaz, yapay zekâ eğitiminde kullanmaz veya yayımlamaz. Öğretmen inceler; göndermeden önce dinleyip silebilirsiniz.",
+            "Çocuklar için öğretmen ile veli veya yasal temsilci, ödevin ve kaydın geçerli kurallara uygun biçimde yetkilendirildiğinden emin olmalıdır. Öğrenci kaydı başlatmayıp öğretmeninden başka bir yöntem isteyebilir. Erişim, silme veya erişilebilirlik sorunları için bize başvurun."
           ],
           "purpose_items": [
             "Classio seviye, işlenen konular, program ilerlemesi ve alıştırma sonuçlarını çalışma kaynakları önermek için kullanır. Öğretmen önerileri gözden geçirebilir ve puanları düzeltebilir. Bu öneriler tek başına eğitime erişiminizi belirlemez veya hakkınızda hukuki sonuç doğuran karar vermez.",
@@ -283,7 +297,8 @@
         {
           "title": "Saklama süresi",
           "paragraphs": [
-            "Hesap ve öğretmen kayıtlarını hizmet için gerekli olduğu ve öğretmen kaydı tuttuğu sürece saklarız. Geçerli silme/düzeltme talebini amaç ve saklama yükümlülüklerine göre değerlendiririz. Öğretmenin idari ödeme kayıtları, güvenlik kanıtları ve hukuki talepler için gerekli kayıtlar hesap kapandıktan sonra da kalabilir. Teknik ve yapay zekâ kalite olayları amaca özgü saklama kontrollerine tabidir; tüm kayıtlar için tek süre yoktur. Belirli bir kayıt için güncel ölçütü sorabilirsiniz."
+            "Hesap ve öğretmen kayıtlarını hizmet için gerekli olduğu ve öğretmen kaydı tuttuğu sürece saklarız. Geçerli silme/düzeltme talebini amaç ve saklama yükümlülüklerine göre değerlendiririz. Öğretmenin idari ödeme kayıtları, güvenlik kanıtları ve hukuki talepler için gerekli kayıtlar hesap kapandıktan sonra da kalabilir. Teknik ve yapay zekâ kalite olayları amaca özgü saklama kontrollerine tabidir; tüm kayıtlar için tek süre yoktur. Belirli bir kayıt için güncel ölçütü sorabilirsiniz.",
+            "Gönderilen ses öğrenci ve öğretmen tarafından gönderimden itibaren en çok 30 gün erişilebilir; ardından erişim kapanır ve özel nesne silinmek üzere sıraya alınır. Silme başarısız olursa erişim kapalı kalır ve işlem yeniden denenir. Ödev, rubrik puanı ve geri bildirim aşağıdaki saklama ölçütlerine göre eğitim kaydı olarak kalabilir. Başlatılıp gönderilmeyen kayıt bir gün sonra silme sırasına alınır."
           ]
         },
         {

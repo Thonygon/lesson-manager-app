@@ -31,7 +31,7 @@ class LegalAgreementsTest(unittest.TestCase):
 
     def test_acceptance_registry_matches_published_text(self):
         source = json.loads(SOURCE.read_text(encoding="utf-8"))
-        sql = (SOURCE.parents[1] / "streamlit/migrations/versioned_legal_acceptance.sql").read_text(encoding="utf-8")
+        sql = (SOURCE.parents[1] / "streamlit/migrations/oral_legal_publications.sql").read_text(encoding="utf-8")
         registered = set(re.findall(r"\('([^']+)','([^']+)','([^']+)','([0-9a-f]{64})','[0-9-]+'\)", sql))
         expected = {
             (slug, language, source["version"], document_hash(source["documents"][slug][language]))

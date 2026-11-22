@@ -1,11 +1,12 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 
 import { BackLink } from '@/components/back-link';
 import { AppShell } from '@/components/app-shell';
+import { YoutubeVideo } from '@/components/youtube-video';
 import { LessonPlanView } from '@/components/lesson-plan-view';
 import { Button, EmptyState, Field, LoadingState, Pagination, Panel } from '@/components/ui';
 import { useAppPreferences } from '@/providers/app-preferences';
@@ -36,7 +37,7 @@ function VideoAssignmentView({ detail, t }: { detail: ClassioRecord; t: (key: st
   const snapshot = (detail.content_snapshot || {}) as ClassioRecord;
   const url = videoAssignmentUrl(detail);
   const id = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([A-Za-z0-9_-]{6,})/)?.[1];
-  return <View style={styles.videoDetail}>{Platform.OS === 'web' && id ? createElement('iframe', { src: `https://www.youtube-nocookie.com/embed/${id}`, title: String(detail.title || 'Video'), allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture', allowFullScreen: true, style: { width: '100%', aspectRatio: '16 / 9', border: 0, borderRadius: 14 } }) : snapshot.thumbnail_url ? <Image source={{ uri: String(snapshot.thumbnail_url) }} style={styles.videoPoster} contentFit="cover" /> : null}{snapshot.description ? <Text style={styles.videoDescription}>{String(snapshot.description)}</Text> : null}{url ? <Button secondary onPress={() => void Linking.openURL(url)}>▶ {t('assignmentLabels.openVideo')}</Button> : <Text style={styles.emptyCopy}>{t('assignmentLabels.videoUnavailable')}</Text>}</View>;
+  return <View style={styles.videoDetail}>{id ? <YoutubeVideo videoId={id} title={String(detail.title || 'Video')} /> : snapshot.thumbnail_url ? <Image source={{ uri: String(snapshot.thumbnail_url) }} style={styles.videoPoster} contentFit="cover" /> : null}{snapshot.description ? <Text style={styles.videoDescription}>{String(snapshot.description)}</Text> : null}{url ? <Button secondary onPress={() => void Linking.openURL(url)}>▶ {t('assignmentLabels.openVideo')}</Button> : <Text style={styles.emptyCopy}>{t('assignmentLabels.videoUnavailable')}</Text>}</View>;
 }
 function Choice({ active, label, onPress, disabled = false }: { active: boolean; label: string; onPress: () => void; disabled?: boolean }) { return <Pressable disabled={disabled} onPress={onPress} style={[styles.choice, active && styles.choiceActive]}><Text style={[styles.choiceText, active && styles.choiceTextActive]}>{label}</Text></Pressable>; }
 
@@ -126,6 +127,7 @@ export default function AssignmentsScreen() {
       <BackLink label={t('assignments.back')} onPress={() => router.replace({ pathname: '/students', params: { section: 'progress', student: String(selected.student_id || ''), learningTab: 'assignments' } })} />
       <View style={styles.detailHero}><View style={[styles.detailIcon, { backgroundColor: meta.tint }]}><Text style={styles.detailIconText}>{meta.icon}</Text></View><View style={styles.detailCopy}><Text style={styles.detailTitle}>{String(selected.title || t('assignments.untitled'))}</Text><Text style={styles.detailMeta}>{studentName(selected, names)} · {canonicalSubjectLabel(selected.subject_label || selected.subject_key, t)} · {t(assignmentTypeKey(selected.assignment_type))}</Text></View><Text style={styles.detailStatus}>{t(assignmentStatusKey(statusOf(selected)))}</Text></View>
       <View style={styles.metrics}><Panel style={styles.metric}><Text style={styles.metricValue}>{selected.due_at ? asDate(selected.due_at) : t('assignments.flexible')}</Text><Text style={styles.metricLabel}>{t('assignments.dueDate')}</Text></Panel>{hasAnswers ? <><Panel style={styles.metric}><Text style={styles.metricValue}>{scoreText(selected) || '—'}</Text><Text style={styles.metricLabel}>{t('assignments.currentScore')}</Text></Panel><Panel style={styles.metric}><Text style={styles.metricValue}>{assignmentAttempts.length}</Text><Text style={styles.metricLabel}>{t('assignments.attempts')}</Text></Panel><Panel style={styles.metric}><Text style={styles.metricValue}>{pendingReviews.length}</Text><Text style={styles.metricLabel}>{t('assignments.reviewRequests')}</Text></Panel></> : null}</View>
+      {selected.assignment_type === 'oral_presentation' ? <Button onPress={() => router.push({ pathname: '/oral-assignment', params: { assignmentId: String(selected.id) } })}>{t('oral.openReview')}</Button> : null}
       {detailLoading ? <LoadingState /> : detailError ? <EmptyState title={t('assignments.unavailable')} body={detailError} /> : detail ? <View style={styles.detailColumns}>
         <Panel style={styles.detailPanel}><Text style={styles.sectionTitle}>{hasAnswers ? t('assignments.instructions') : t('assignmentLabels.resourceContent')}</Text>{detail.teacher_note ? <View style={styles.teacherNote}><Text style={styles.noteLabel}>{t('assignments.teacherNote')}</Text><Text style={styles.noteText}>{String(detail.teacher_note)}</Text></View> : null}
           {String(detail.assignment_type) === 'lesson_plan_topic' ? <LessonPlanView detail={(snapshot.plan_json as Record<string, unknown>) || snapshot} locale={language} /> : String(detail.assignment_type) === 'video' ? <VideoAssignmentView detail={detail} t={t} /> : questions.length ? questions.map((question, index) => <View key={`${question.exerciseIndex}:${question.questionIndex}`} style={styles.reviewPrompt}><Text style={styles.answerNumber}>{t('assignments.question', { number: index + 1 })}</Text><Text style={styles.answerText}>{question.prompt}</Text>{question.options.length ? <Text style={styles.activityMeta}>{question.options.map((option, optionIndex) => `${String.fromCharCode(65 + optionIndex)}. ${option}`).join('   ·   ')}</Text> : null}</View>) : <Text style={styles.emptyCopy}>{t('assignments.noSnapshot')}</Text>}
