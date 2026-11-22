@@ -25,3 +25,9 @@ export function nextProgramSequenceOrder(previousLevel: string, previousOrder: n
   const levelOrder = language.includes(previousLevel) ? language.indexOf(previousLevel) + 1 : academic.includes(previousLevel) ? academic.indexOf(previousLevel) + 1 : 0;
   return (previousOrder || levelOrder) + 1;
 }
+
+export function nextProgramLevel(previousLevel: string): string | null {
+  const levels = /^[A-C][12]$/.test(previousLevel) ? ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] : ['beginner_band', 'intermediate_band', 'advanced_band'];
+  const index = levels.indexOf(previousLevel);
+  return index >= 0 && index < levels.length - 1 ? levels[index + 1] : null;
+}

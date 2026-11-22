@@ -30,4 +30,10 @@ for (const [stage, base] of Object.entries(rules._STAGE_STRUCTURE_RULES)) {
     assert.equal(moduleExports.clampProgramStructure(subject, stage, 99, 99).lessonsPerUnit, expected.lessons_max);
   }
 }
+assert.equal(moduleExports.nextProgramLevel('A1'), 'A2');
+assert.equal(moduleExports.nextProgramLevel('B1'), 'B2');
+assert.equal(moduleExports.nextProgramLevel('C2'), null);
+assert.equal(moduleExports.nextProgramLevel('beginner_band'), 'intermediate_band');
+assert.equal(moduleExports.nextProgramLevel('advanced_band'), null);
+assert.equal(moduleExports.nextProgramLevel('unknown'), null);
 console.log('Program structure matches Python stage rules and overrides.');
