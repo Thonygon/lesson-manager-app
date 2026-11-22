@@ -7,10 +7,11 @@ import { ResourceShowcaseCard } from '@/components/resource-showcase-card';
 import { ResourceFilters } from '@/components/resource-filters';
 import { Button, EmptyState, LoadingState, Pagination, Panel, TabRail } from '@/components/ui';
 import { canonicalSubjectKey, canonicalSubjectLabel } from '@/lib/subjects';
+import { exerciseTypeLabel } from '@/lib/assignment-labels';
 import { useAppPreferences } from '@/providers/app-preferences';
 import type { ClassioRecord } from '@/services/classio-data';
 import type { PublicResource } from '@/services/public-data';
-import { getStudentAssignmentCardImages, getStudentTeacherConnections, getStudentWorkspace, type StudentWorkspace } from '@/services/student-data';
+import { getStudentAssignmentCardImages, getStudentAssignmentWorksheetTypes, getStudentTeacherConnections, getStudentWorkspace, type StudentWorkspace } from '@/services/student-data';
 import { colors } from '@/theme';
 
 type Kind = 'worksheet' | 'exam' | 'video' | 'oral_presentation';
@@ -52,7 +53,9 @@ export default function StudentAssignmentsScreen() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState('');
   const [cardImages, setCardImages] = useState<Record<string, string>>({});
+  const [cardWorksheetTypes, setCardWorksheetTypes] = useState<Record<string, string>>({});
   const requestedPreviews = useRef(new Set<string>());
+  const requestedTypes = useRef(new Set<string>());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -126,6 +129,24 @@ export default function StudentAssignmentsScreen() {
     return () => { active = false; if (!settled) missing.forEach((row) => requested.delete(String(row.id))); };
   }, [shown]);
 
+  useEffect(() => {
+    const requested = requestedTypes.current;
+    const missing = shown.filter((row) => String(row.assignment_type) === 'worksheet' && !requested.has(String(row.id)));
+    if (!missing.length) return;
+    missing.forEach((row) => requested.add(String(row.id)));
+    let active = true;
+    let settled = false;
+    void getStudentAssignmentWorksheetTypes(missing).then((types) => {
+      settled = true;
+      if (active) setCardWorksheetTypes((current) => ({ ...current, ...types }));
+    }).catch((reason) => {
+      settled = true;
+      missing.forEach((row) => requested.delete(String(row.id)));
+      console.warn('Student assignment worksheet types unavailable', reason);
+    });
+    return () => { active = false; if (!settled) missing.forEach((row) => requested.delete(String(row.id))); };
+  }, [shown]);
+
   const chooseKind = (value: Kind) => { setKind(value); setScope(''); setQuery(''); setPage(1); setSelectedId(''); };
   const activeConnections = connections.filter((row) => String(row.status) === 'active');
   const pendingConnections = connections.filter((row) => String(row.status) === 'pending');
@@ -134,7 +155,7 @@ export default function StudentAssignmentsScreen() {
       {activeConnections.length ? <View style={styles.connectionGroup}><Text style={styles.detailHeading}>{t('student.myTeachers')}</Text>{activeConnections.map((row) => <Text key={String(row.id)} style={styles.detailLine}>{String(row.teacher_name || t('student.teacher'))}{subjectLabels(row.active_subjects, t) ? ` · ${subjectLabels(row.active_subjects, t)}` : ''}</Text>)}</View> : null}
       {pendingConnections.length ? <View style={styles.connectionGroup}><Text style={styles.detailHeading}>{t('student.teacherRequestsPending')}</Text>{pendingConnections.map((row) => <Text key={String(row.id)} style={styles.detailLine}>{String(row.teacher_name || t('student.teacher'))}{subjectLabels(row.requested_subjects, t) ? ` · ${subjectLabels(row.requested_subjects, t)}` : ''}</Text>)}</View> : null}
     </Panel> : null}
-    <TabRail accessibilityLabel={t('student.assignments')} value={kind} onChange={(value) => chooseKind(value as Kind)} items={[{ value: 'worksheet', label: `📋 ${t('student.worksheets')}` }, { value: 'exam', label: `🧪 ${t('student.exams')}` }, { value: 'video', label: `🎬 ${t('student.videos')}` }, { value: 'oral_presentation', label: `🎙 ${t('oral.title')}` }]} />
+    <TabRail accessibilityLabel={t('student.assignments')} value={kind} onChange={(value) => chooseKind(value as Kind)} items={[{ value: 'worksheet', label: `📋 ${t('student.worksheets')}` }, { value: 'exam', label: `🧪 ${t('student.exams')}` }, { value: 'oral_presentation', label: `🎙 ${t('oral.title')}` }, { value: 'video', label: `🎬 ${t('student.videos')}` }]} />
     <ResourceFilters query={query} onQueryChange={(value) => { setQuery(value); setPage(1); setScope(''); setSelectedId(''); }} searchLabel={t('common.search')} searchPlaceholder={t('student.searchAssignments')} count={filtered.length} facets={[{ key: 'status', label: t('students.filterStatus'), value: filter, allValue: 'all', allLabel: t('student.filter.all'), options: (['not_started', 'in_progress', 'done'] as const).map((value) => ({ value, label: t(`student.filter.${value}`) })), onChange: (value) => { setFilter(value as Filter); setPage(1); setScope(''); setSelectedId(''); } }]} />
     {groups.length > 1 ? <TabRail accessibilityLabel={t('student.assignments')} value={activeGroup.key} onChange={(value) => { setScope(value); setPage(1); setSelectedId(''); }} items={groups.map((group) => ({ value: group.key, label: `📚 ${group.label}` }))} /> : null}
     {loading ? <LoadingState /> : error ? <EmptyState title={t('student.loadFailed')} body={error} /> : !shown.length ? <EmptyState title={t('student.noAssignments')} body={t('student.noAssignmentsBody')} /> : <View style={styles.grid}>{shown.map((row) => {
@@ -150,7 +171,7 @@ export default function StudentAssignmentsScreen() {
       const openPractice = () => kind === 'oral_presentation' ? router.push({ pathname: '/oral-assignment', params: { assignmentId: id } }) : router.push({ pathname: '/student-practice', params: { kind, assignmentId: id, returnTo: 'student-assignments', ...(reviewSessionId ? { reviewSessionId } : {}) } });
       const showDetails = status === 'done' || archived;
       return <View key={id} style={styles.resourceSlot}>
-        <ResourceShowcaseCard compact item={assignmentPreview(row, kind, cardImages[id] || '', teacher, t('student.assignment'), canonicalSubjectLabel(row.subject_label || row.subject_key, t))} onPress={() => showDetails ? setSelectedId((current) => current === id ? '' : id) : openPractice()} eyebrow={draft.length ? `${t(`student.filter.${status}`)} · ${t('student.draftSaved')}` : t(`student.filter.${status}`)} description={String(row.topic || t('student.assignment'))} />
+        <ResourceShowcaseCard compact item={assignmentPreview(row, kind, cardImages[id] || '', teacher, t('student.assignment'), canonicalSubjectLabel(row.subject_label || row.subject_key, t))} onPress={() => showDetails ? setSelectedId((current) => current === id ? '' : id) : openPractice()} eyebrow={draft.length ? `${t(`student.filter.${status}`)} · ${t('student.draftSaved')}` : t(`student.filter.${status}`)} description={[kind === 'worksheet' && cardWorksheetTypes[id] ? exerciseTypeLabel(cardWorksheetTypes[id], t) : '', String(row.topic || '')].filter(Boolean).join(' · ') || t('student.assignment')} />
         {selectedId === id && showDetails ? <Panel style={styles.details}>
           <Text style={styles.detailHeading}>{t('student.details')}</Text>
           {teacher ? <Text style={styles.detailLine}>{t('student.assignmentTeacher')}: {teacher}</Text> : null}
