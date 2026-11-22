@@ -39,6 +39,15 @@ async function main() {
   assert.equal(result.status, 200);
   assert.equal(written.find((item) => item.table === 'classio_generation_intent_feedback').value.feedback_surface, 'resource_page');
   assert.equal(written.find((item) => item.table === 'classio_generation_intent_feedback_events').value.reason, 'level');
+  const oralGenerationId = '22222222-2222-4222-8222-222222222222';
+  rows.oral_presentations = [{ id: '19', user_id: 'teacher-1', created_at: '2026-10-23T00:03:00Z', updated_at: '2026-10-23T00:03:00Z' }];
+  rows.classio_ai_operations.push({ operation_id: oralGenerationId, actor_user_id: 'teacher-1', source: 'expo', status: 'success', feature_name: 'generate_oral_presentation', modality: 'text', started_at: '2026-10-23T00:02:00Z', finished_at: '2026-10-23T00:02:50Z' });
+  rows.classio_generation_resources.push({ generation_id: oralGenerationId, actor_user_id: 'teacher-1', resource_type: 'oral_presentation', resource_id: '19', edited_at: null });
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=oral_presentation&resourceId=19'))).json(), { eligible: true, generationId: oralGenerationId, satisfied: null, reason: null });
+  assert.equal((await generation.POST(post({ generationId: oralGenerationId, satisfied: true, surface: 'generation_preview' }))).status, 200);
+  rows.classio_generation_resources.pop();
+  assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=oral_presentation&resourceId=19'))).json(), { eligible: false });
+  rows.classio_ai_operations.pop();
   rows.classio_generation_resources[0].edited_at = '2026-10-23T00:05:00Z';
   assert.deepEqual(await (await generation.GET(new Request('https://classio.test/api/generation-feedback?resourceType=plan&resourceId=8'))).json(), { eligible: false });
   assert.equal((await generation.POST(post({ generationId, satisfied: true, surface: 'generation_preview' }))).status, 409);

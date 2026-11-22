@@ -63,6 +63,7 @@ async function main() {
     assert.equal(databaseWrites[0].payload.actor_user_id, '00000000-0000-4000-8000-000000000001');
     assert.equal(databaseWrites[0].payload.filename, undefined);
     assert.deepEqual(databaseWrites[1].filters.slice(1), [['actor_user_id', '00000000-0000-4000-8000-000000000001'], ['source', 'expo'], ['status', 'started']]);
+    assert.equal((await route.exports.POST(request({ action: 'start', eventId: '00000000-0000-4000-8000-000000000003', format: 'docx', documentKind: 'oral_presentation', variant: 'student' }))).status, 201);
   } finally {
     [process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, process.env.SUPABASE_SECRET_KEY] = oldEnv;
   }

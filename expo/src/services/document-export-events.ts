@@ -1,6 +1,6 @@
 import { requireSupabase } from '@/lib/supabase';
 
-export type DocumentKind = 'lesson_plan' | 'worksheet' | 'exam' | 'cv' | 'cover_letter' | 'student_report' | 'student_history' | 'dashboard_report' | 'other';
+export type DocumentKind = 'lesson_plan' | 'worksheet' | 'exam' | 'oral_presentation' | 'cv' | 'cover_letter' | 'student_report' | 'student_history' | 'dashboard_report' | 'other';
 export type ExportVariant = 'full' | 'student' | 'teacher' | 'answers';
 
 async function sendExportEvent(token: string, payload: Record<string, unknown>): Promise<void> {

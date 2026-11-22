@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
-const kinds = new Set(['lesson_plan', 'worksheet', 'exam', 'cv', 'cover_letter', 'student_report', 'student_history', 'dashboard_report', 'other']);
+const kinds = new Set(['lesson_plan', 'worksheet', 'exam', 'oral_presentation', 'cv', 'cover_letter', 'student_report', 'student_history', 'dashboard_report', 'other']);
 const variants = new Set(['full', 'student', 'teacher', 'answers']);
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 

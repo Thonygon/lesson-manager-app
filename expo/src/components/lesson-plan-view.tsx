@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Disclosure } from '@/components/ui';
+import { Button, Disclosure } from '@/components/ui';
 import { resourceSections } from '@/services/document-exports';
 import { colors } from '@/theme';
 
@@ -9,7 +9,7 @@ type Locale = 'en' | 'es' | 'tr';
 
 const SECTION_ICONS = ['◈', '▤', '◎', '▦'];
 
-export function LessonPlanView({ detail, locale }: { detail: Record<string, unknown>; locale: Locale }) {
+export function LessonPlanView({ detail, locale, onCreateOral }: { detail: Record<string, unknown>; locale: Locale; onCreateOral?: () => void }) {
   const sections = resourceSections(detail, 'full', locale);
   return <View style={styles.root}>
     {sections.map((section, index) => <Disclosure key={`${section.heading}-${index}`} title={`${SECTION_ICONS[index] || '▫'} ${section.heading}`} defaultOpen={index === 0} style={styles.section} titleStyle={styles.sectionTitle}>
@@ -27,6 +27,7 @@ export function LessonPlanView({ detail, locale }: { detail: Record<string, unkn
         {section.grid?.map((row, rowIndex) => <Text key={rowIndex} style={styles.line}>{row.join('  ')}</Text>)}
       </View>
     </Disclosure>)}
+    {onCreateOral ? <Button secondary onPress={onCreateOral}>{({ en: 'Create oral practice', es: 'Crear práctica oral', tr: 'Sözlü alıştırma oluştur' })[locale]}</Button> : null}
   </View>;
 }
 

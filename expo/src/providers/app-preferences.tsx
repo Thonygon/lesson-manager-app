@@ -733,6 +733,9 @@ Object.assign(tr, { 'admin.visitMapHelp': 'Son 30 gündeki oturum açılmış uy
 Object.assign(en, { 'admin.usageRecent': 'Recent activity', 'admin.usageCharged': 'Counts toward plan', 'admin.usageEventOnly': 'AI event only' });
 Object.assign(es, { 'admin.usageRecent': 'Actividad reciente', 'admin.usageCharged': 'Cuenta para el plan', 'admin.usageEventOnly': 'Solo evento de IA' });
 Object.assign(tr, { 'admin.usageRecent': 'Son etkinlikler', 'admin.usageCharged': 'Plana dahil', 'admin.usageEventOnly': 'Yalnızca YZ olayı' });
+Object.assign(en, { 'admin.usageOralPresentation': 'Oral presentation generation' });
+Object.assign(es, { 'admin.usageOralPresentation': 'Generación de presentación oral' });
+Object.assign(tr, { 'admin.usageOralPresentation': 'Sözlü sunum oluşturma' });
 Object.assign(en, { 'admin.recentPaymentEvents': 'Recent payment events', 'admin.noPaymentEvents': 'No payment events', 'admin.noPaymentEventsBody': 'Payment provider activity will appear here.' });
 Object.assign(es, { 'admin.recentPaymentEvents': 'Eventos de pago recientes', 'admin.noPaymentEvents': 'Sin eventos de pago', 'admin.noPaymentEventsBody': 'La actividad de los proveedores de pago aparecerá aquí.' });
 Object.assign(tr, { 'admin.recentPaymentEvents': 'Son ödeme olayları', 'admin.noPaymentEvents': 'Ödeme olayı yok', 'admin.noPaymentEventsBody': 'Ödeme sağlayıcısı etkinliği burada görünür.' });
@@ -914,3 +917,6 @@ Object.assign(tr, {
 Object.assign(en, { 'resources.youtubeNoLongerAvailable': 'This video is no longer available on YouTube. It may have been removed or made private. Choose another resource or ask your teacher for a replacement.' });
 Object.assign(es, { 'resources.youtubeNoLongerAvailable': 'Este vídeo ya no está disponible en YouTube. Puede haber sido eliminado o cambiado a privado. Elige otro recurso o pide a tu docente que lo reemplace.' });
 Object.assign(tr, { 'resources.youtubeNoLongerAvailable': 'Bu video artık YouTube’da kullanılamıyor. Silinmiş veya gizli hale getirilmiş olabilir. Başka bir kaynak seçin ya da öğretmeninizden yenisini isteyin.' });
+Object.assign(en, { 'resources.term.recommended_oral_exercise_types': 'Recommended oral practices', 'resources.term.suggested_oral_exercise_types': 'Suggested oral practices', 'programView.oral': 'Oral practice', 'students.recommendationGroup.oral_presentation': 'Oral presentations' });
+Object.assign(es, { 'resources.term.recommended_oral_exercise_types': 'Prácticas orales recomendadas', 'resources.term.suggested_oral_exercise_types': 'Prácticas orales sugeridas', 'programView.oral': 'Práctica oral', 'students.recommendationGroup.oral_presentation': 'Presentaciones orales' });
+Object.assign(tr, { 'resources.term.recommended_oral_exercise_types': 'Önerilen sözlü alıştırmalar', 'resources.term.suggested_oral_exercise_types': 'Önerilen sözlü alıştırmalar', 'programView.oral': 'Sözlü alıştırma', 'students.recommendationGroup.oral_presentation': 'Sözlü sunumlar' });
