@@ -1,10 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { BackLink } from '@/components/back-link';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
 import { ResourceEditor } from '@/components/resource-editor';
+import { SmartToolTabs, TOOLS } from '@/components/smart-tool-tabs';
 import { GenerationIntentQuestion } from '@/components/generation-intent-question';
 import { LessonPlanView } from '@/components/lesson-plan-view';
 import { WorksheetView } from '@/components/worksheet-view';
@@ -27,13 +28,6 @@ import { programProgress, programReady, programUnitReady } from '@/shared/progra
 import { clearExplorerDraft, getExplorerDraft } from '@/lib/explorer-draft-handoff';
 import { publicExploreCopy } from '@/lib/public-explore-copy';
 
-const TOOLS: { key: SmartToolKind; icon: string; titleKey: string; bodyKey: string }[] = [
-  { key: 'plan', icon: '📝', titleKey: 'smart.plan', bodyKey: 'smart.planBody' },
-  { key: 'worksheet', icon: '📋', titleKey: 'smart.worksheet', bodyKey: 'smart.worksheetBody' },
-  { key: 'exam', icon: '🧪', titleKey: 'smart.exam', bodyKey: 'smart.examBody' },
-  { key: 'program', icon: '📚', titleKey: 'smart.program', bodyKey: 'smart.programBody' },
-  { key: 'oral_presentation', icon: '🎙️', titleKey: 'oral.title', bodyKey: 'oral.toolBody' },
-];
 const SUBJECTS = ['English', 'Spanish', 'Mathematics', 'Science', 'Music', 'Study skills', 'Other'];
 const STAGES = ['Early primary', 'Upper primary', 'Lower secondary', 'Upper secondary', 'Adult'];
 const LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -229,7 +223,7 @@ export default function SmartToolsScreen() {
   const programComplete = resultInput?.kind === 'program' && result ? programReady(result.document) : false;
   const programUnits = resultInput?.kind === 'program' && result && Array.isArray(result.document.units) ? result.document.units as Record<string, unknown>[] : [];
   const exportDocument = async (format: 'pdf' | 'docx', variant: 'full' | 'student' | 'teacher' | 'answers' = 'full') => { if (!result || !resultInput || (resultInput.kind === 'program' && !programReady(result.document))) return; setExporting(true); setMessageContext('preview'); setMessage(''); const title = String(result.document.title || `${resultInput.subject} · ${resultInput.topic}`).trim(); const exportData = { ...result.document, subject: resultInput.subject, topic: resultInput.topic, learner_stage: resultInput.stage, level_or_band: resultInput.level, lesson_purpose: resultInput.lessonPurpose }; try { if (format === 'pdf') await downloadResourcePdf(title, exportData, interfaceLanguage, variant); else await downloadResourceDocx(title, exportData, interfaceLanguage, variant); } catch (error) { setMessageTone('error'); setMessage(messageOf(error, 'The request could not be completed.')); } finally { setExporting(false); } };
-  return <AppShell title={t('smart.title')} eyebrow={t('smart.eyebrow')}>{params.programId && params.programTopicId ? <BackLink label={t('smart.backToProgram')} onPress={() => router.push({ pathname: '/resources', params: { kind: 'program', scope: 'mine', resourceId: params.programId, returnNonce: String(Date.now()) } })} /> : null}<Text style={styles.intro}>{t('smart.intro')}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolTabs}>{TOOLS.map((tool) => <Pressable accessibilityRole="tab" accessibilityState={{ selected: kind === tool.key }} key={tool.key} onPress={() => { if (tool.key === 'oral_presentation') { router.push('/oral-presentations'); return; } setKind(tool.key); if (tool.key === 'program' && kind !== 'program') resetProgramSize(subject, stage); setGenerationMode('AI'); setVisibility('Private'); setResult(null); setMessage(''); }} style={[styles.toolTab, kind === tool.key && styles.toolTabActive]}><Text style={styles.toolIcon}>{tool.icon}</Text><View><Text style={[styles.toolTitle, kind === tool.key && styles.toolTitleActive]}>{t(tool.titleKey)}</Text><Text style={[styles.toolBody, kind === tool.key && styles.toolBodyActive]}>{t(tool.bodyKey)}</Text></View></Pressable>)}</ScrollView>
+  return <AppShell title={t('smart.title')} eyebrow={t('smart.eyebrow')}>{params.programId && params.programTopicId ? <BackLink label={t('smart.backToProgram')} onPress={() => router.push({ pathname: '/resources', params: { kind: 'program', scope: 'mine', resourceId: params.programId, returnNonce: String(Date.now()) } })} /> : null}<Text style={styles.intro}>{t('smart.intro')}</Text><SmartToolTabs active={kind} onSelect={(selected) => { if (selected === 'oral_presentation') { router.push({ pathname: '/oral-presentations', params: { subject: input.subject, customSubject: input.customSubject || '', topic: input.topic, stage: input.stage, level: input.level, studentId: selectedStudentId, programId: input.programId || '', programTopicId: input.programTopicId || '', objective: lessonObjective } }); return; } setKind(selected); if (selected === 'program' && kind !== 'program') resetProgramSize(subject, stage); setGenerationMode('AI'); setVisibility('Private'); setResult(null); setMessage(''); }} />
     <View style={styles.columns}><Panel style={styles.builder}>
       <Text style={styles.sectionTitle}>{t('smart.build', { tool: t(activeTool.titleKey).toLocaleLowerCase(interfaceLanguage) })}</Text><Text style={styles.sectionBody}>{t('smart.contextHelp')}</Text>
       <Disclosure title={t('smart.generationSetup')} summary={`${optionLabel(effectiveGenerationMode)} · ${selectedStudentName || t('smart.noStudent')}`} headerAction={<HelpIcon title={t('smart.generationDataTitle')}>{t('smart.generationDataHelp')}</HelpIcon>} defaultOpen>
