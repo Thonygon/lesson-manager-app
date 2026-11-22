@@ -101,8 +101,11 @@ export default function SmartToolsScreen() {
   useEffect(() => { let active = true; if (programId) void getSmartToolProgramTopics(programId).then((items) => { if (!active) return; setProgramTopics(items); const linked = items.find((item) => item.id === selectedTopicRef.current); if (linked) { setTopic(linked.title); setLessonObjective(linked.learningObjectives[0] || ''); if (linked.lessonPurpose) setLessonPurpose(lessonPurposeOption(linked.lessonPurpose)); if (linked.suggestedWorksheetTypes[0]) setWorksheetType(linked.suggestedWorksheetTypes[0].replaceAll('_', ' ')); if (linked.suggestedExamTypes.length) setExerciseTypes(linked.suggestedExamTypes.slice(0, examLengthRule(examLength).sections)); void enrichTopicRecommendations(programId, linked); } }).catch((error) => { if (active) setProgramError(messageOf(error, 'Program topics could not be loaded.')); }); return () => { active = false; }; }, [programId]);
   const selectedProgram = programs.find((item) => item.id === programId);
   const selectedProgramTopic = programTopics.find((item) => item.id === programTopicId);
-  const matchingPrograms = programs.filter((item) => canonicalSubjectKey(item.subject) === canonicalSubjectKey(subject) && (subject !== 'Other' || item.customSubject.toLowerCase() === customSubject.trim().toLowerCase()) && displayStage(item.stage) === stage && displayLevel(item.level) === level);
-  const progressionCandidates = matchingPrograms.filter((item) => item.stage === sourceStage(stage)).sort((left, right) => right.sequenceOrder - left.sequenceOrder);
+  const contextPrograms = programs.filter((item) => canonicalSubjectKey(item.subject) === canonicalSubjectKey(subject) && (subject !== 'Other' || item.customSubject.toLowerCase() === customSubject.trim().toLowerCase()) && displayStage(item.stage) === stage);
+  // A topic source must match the target level; a next-level prerequisite must
+  // remain selectable after the target advances to the following level.
+  const matchingPrograms = contextPrograms.filter((item) => displayLevel(item.level) === level);
+  const progressionCandidates = contextPrograms.filter((item) => item.stage === sourceStage(stage)).sort((left, right) => right.sequenceOrder - left.sequenceOrder);
   const examOptions = [...new Set([...EXERCISE_GROUPS.core, ...(EXERCISE_GROUPS[examGroup(subject)] || []), ...exerciseTypes])];
   const examRule = examLengthRule(examLength);
   const examTypeError = kind === 'exam' ? !exerciseTypes.length ? t('smart.examSelectTypes') : exerciseTypes.length > examRule.sections ? t('smart.examTooMany', { sections: examRule.sections }) : '' : '';
