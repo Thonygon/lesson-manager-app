@@ -41,7 +41,7 @@ export async function submitOralAudio(assignmentId: string, mime: string, bytes:
   if (startError || !started) throw startError ?? new Error('oral.submitFailed');
   const ticket = started as { path: string; recording_id: string };
   const upload = await client.storage.from(ORAL_AUDIO_BUCKET).upload(ticket.path, bytes, { contentType: mime, upsert: false });
-  if (upload.error && !/already exists|duplicate/i.test(upload.error.message)) throw upload.error;
+  if (upload.error) throw upload.error;
   const { error } = await client.rpc('classio_submit_oral_recording', { p_recording_id: ticket.recording_id, p_duration_seconds: duration });
   if (error) throw error;
 }
