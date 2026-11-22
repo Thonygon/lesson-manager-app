@@ -733,6 +733,9 @@ Object.assign(tr, { 'admin.visitMapHelp': 'Son 30 gündeki oturum açılmış uy
 Object.assign(en, { 'admin.usageRecent': 'Recent activity', 'admin.usageCharged': 'Counts toward plan', 'admin.usageEventOnly': 'AI event only' });
 Object.assign(es, { 'admin.usageRecent': 'Actividad reciente', 'admin.usageCharged': 'Cuenta para el plan', 'admin.usageEventOnly': 'Solo evento de IA' });
 Object.assign(tr, { 'admin.usageRecent': 'Son etkinlikler', 'admin.usageCharged': 'Plana dahil', 'admin.usageEventOnly': 'Yalnızca YZ olayı' });
+Object.assign(en, { 'admin.usageOralPresentation': 'Oral presentation generation' });
+Object.assign(es, { 'admin.usageOralPresentation': 'Generación de presentación oral' });
+Object.assign(tr, { 'admin.usageOralPresentation': 'Sözlü sunum oluşturma' });
 Object.assign(en, { 'admin.recentPaymentEvents': 'Recent payment events', 'admin.noPaymentEvents': 'No payment events', 'admin.noPaymentEventsBody': 'Payment provider activity will appear here.' });
 Object.assign(es, { 'admin.recentPaymentEvents': 'Eventos de pago recientes', 'admin.noPaymentEvents': 'Sin eventos de pago', 'admin.noPaymentEventsBody': 'La actividad de los proveedores de pago aparecerá aquí.' });
 Object.assign(tr, { 'admin.recentPaymentEvents': 'Son ödeme olayları', 'admin.noPaymentEvents': 'Ödeme olayı yok', 'admin.noPaymentEventsBody': 'Ödeme sağlayıcısı etkinliği burada görünür.' });
