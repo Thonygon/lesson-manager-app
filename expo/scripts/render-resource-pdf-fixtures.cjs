@@ -66,6 +66,9 @@ examples.push(['email-reading', 'Reading an email', { worksheet_json: { workshee
   await loaded.exports.downloadStudentHistoryPdf('Sample Student', [{ lesson_date: '2026-11-04', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Future plans' }], [], 'en');
   fs.writeFileSync(path.join(outputDir, 'student-history.pdf'), Buffer.from(global.__classioPdfBytes));
   global.__classioPdfBytes = null;
+  await loaded.exports.downloadStudentPackageReport('Sample Student', { id: 17, payment_date: '2025-09-15', package_start_date: '2025-09-08', package_expiry_date: '2025-12-03', number_of_lesson: 18, paid_amount: 21000, currency: 'TRY', modality: 'Online', subject: 'English' }, [{ lesson_date: '2025-09-08', number_of_lesson: 1, modality: 'Online', subject: 'English', note: 'Introduction' }], 'en', { subject: 'English', modality: 'Online', purchased: 18, delivered: 1, remaining: 17, startDate: '2025-09-08', expiryDate: '2025-12-03' }, 'pdf');
+  fs.writeFileSync(path.join(outputDir, 'student-package.pdf'), Buffer.from(global.__classioPdfBytes));
+  global.__classioPdfBytes = null;
   await loaded.exports.downloadStudentReportPdf('Sample Student', { assignments: [], attempts: [], programs: [], reviews: [], progress: [] }, 'en');
   fs.writeFileSync(path.join(outputDir, 'student-progress.pdf'), Buffer.from(global.__classioPdfBytes));
   global.__classioPdfBytes = null;

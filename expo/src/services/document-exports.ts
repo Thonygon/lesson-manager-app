@@ -954,7 +954,7 @@ export function downloadStudentReportDocx(studentName: string, workspace: Studen
 }
 
 type HistoryBalance = { subject: string; modality: string; purchased: number; delivered: number; remaining: number; startDate?: string; expiryDate?: string } | null;
-function studentHistorySections(lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale, balance: HistoryBalance): ReportSection[] {
+function studentHistorySections(lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale, balance: HistoryBalance, scope: 'global' | 'package' = 'global'): ReportSection[] {
   const labels = {
     en: { lessons: 'Lessons', payments: 'Payments & packages', balance: 'Current package balance', date: 'Date', details: 'Details', amount: 'Amount', units: 'Units', paid: 'Paid', taken: 'Delivered', left: 'Remaining', start: 'Starts', expiry: 'Expires', subject: 'Subject', modality: 'Modality', note: 'Note' },
     es: { lessons: 'Clases', payments: 'Pagos y paquetes', balance: 'Saldo del paquete actual', date: 'Fecha', details: 'Detalles', amount: 'Importe', units: 'Unidades', paid: 'Pagadas', taken: 'Impartidas', left: 'Restantes', start: 'Inicio', expiry: 'Vencimiento', subject: 'Asignatura', modality: 'Modalidad', note: 'Nota' },
@@ -967,7 +967,7 @@ function studentHistorySections(lessons: Record<string, unknown>[], payments: Re
   const totals = new Map<string, number>();
   for (const payment of payments) { const currency = String(payment.currency || 'TRY'); totals.set(currency, (totals.get(currency) || 0) + Number(payment.paid_amount || 0)); }
   sections.push({ heading: locale === 'es' ? 'Totales' : locale === 'tr' ? 'Toplamlar' : 'Totals', lines: [`${labels.lessons}: ${lessons.reduce((sum, lesson) => sum + Number(lesson.number_of_lesson || 0), 0)} ${labels.units}`, ...[...totals].map(([currency, amount]) => `${currency} ${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`)] });
-  if (balance) sections.push({ heading: labels.balance, lines: [[balance.subject, balance.modality, balance.startDate ? `${labels.start}: ${balance.startDate}` : '', balance.expiryDate ? `${labels.expiry}: ${balance.expiryDate}` : ''].filter(Boolean).join(' · ')], table: [[labels.paid, labels.taken, labels.left], [String(balance.purchased), String(balance.delivered), String(balance.remaining)]] });
+  if (balance) sections.push({ heading: scope === 'package' ? { en: 'Package balance', es: 'Saldo del paquete', tr: 'Paket bakiyesi' }[locale] : labels.balance, lines: [[balance.subject, balance.modality, balance.startDate ? `${labels.start}: ${balance.startDate}` : '', balance.expiryDate ? `${labels.expiry}: ${balance.expiryDate}` : ''].filter(Boolean).join(' · ')], table: [[labels.paid, labels.taken, labels.left], [String(balance.purchased), String(balance.delivered), String(balance.remaining)]] });
   return sections;
 }
 
@@ -977,4 +977,13 @@ export function downloadStudentHistoryPdf(studentName: string, lessons: Record<s
 
 export function downloadStudentHistoryDocx(studentName: string, lessons: Record<string, unknown>[], payments: Record<string, unknown>[], locale: DocumentLocale = 'en', balance: HistoryBalance = null) {
   return recordedDocumentExport('docx', 'student_history', 'full', () => saveDocx(`${{ en: 'Student report', es: 'Informe del estudiante', tr: 'Öğrenci raporu' }[locale]} · ${studentName}`, localDocumentDate(), studentHistorySections(lessons, payments, locale, balance), `${studentName}-student-report`, locale));
+}
+
+export function downloadStudentPackageReport(studentName: string, payment: Record<string, unknown>, lessons: Record<string, unknown>[], locale: DocumentLocale, balance: NonNullable<HistoryBalance>, format: 'pdf' | 'docx') {
+  const title = `${{ en: 'Student package report', es: 'Informe del paquete', tr: 'Öğrenci paket raporu' }[locale]} · ${studentName}`;
+  const filename = `${studentName}-package-${String(payment.id || balance.startDate)}`;
+  const render = () => format === 'pdf'
+    ? savePdf(title, localDocumentDate(), studentHistorySections(lessons, [payment], locale, balance, 'package'), filename, locale)
+    : saveDocx(title, localDocumentDate(), studentHistorySections(lessons, [payment], locale, balance, 'package'), filename, locale);
+  return recordedDocumentExport(format, 'student_history', 'full', render);
 }

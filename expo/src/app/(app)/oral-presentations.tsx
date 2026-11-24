@@ -11,7 +11,8 @@ import { downloadResourceDocx, downloadResourcePdf } from '@/services/document-e
 import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
 import { oralDocumentIssues, oralExerciseLabel, oralExercises, oralFamily, oralTemplateAvailable, type OralDocument } from '@/shared/oral-presentation';
-import { generateMaterial, getPersonalizationStudents, saveGeneratedMaterial, setGeneratedMaterialVisibility, updateGeneratedMaterial, type GeneratedMaterial, type PersonalizationStudent, type SmartToolInput, GenerationReuseError } from '@/services/smart-tools';
+import { generateMaterial, getPersonalizationStudents, getSmartToolPrograms, getSmartToolProgramTopics, saveGeneratedMaterial, setGeneratedMaterialVisibility, updateGeneratedMaterial, type GeneratedMaterial, type PersonalizationStudent, type SmartToolInput, type SmartToolProgram, type SmartToolProgramTopic, GenerationReuseError } from '@/services/smart-tools';
+import { canonicalSubjectKey } from '@/lib/subjects';
 
 const SUBJECTS = ['English', 'Spanish', 'Turkish', 'Mathematics', 'Science', 'Music', 'Study skills', 'Other'];
 const STAGES = ['Early primary', 'Upper primary', 'Lower secondary', 'Upper secondary', 'Adult'];
@@ -19,6 +20,8 @@ const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'Beginner', 'Intermediate', 
 const LANGUAGES = ['en', 'es', 'tr'] as const;
 const STAGE_ALIASES: Record<string, string> = { early_primary: 'Early primary', upper_primary: 'Upper primary', lower_secondary: 'Lower secondary', upper_secondary: 'Upper secondary', adult_stage: 'Adult' };
 const LEVEL_ALIASES: Record<string, string> = { beginner_band: 'Beginner', intermediate_band: 'Intermediate', advanced_band: 'Advanced' };
+const storedStage = (value: string) => Object.entries(STAGE_ALIASES).find(([, label]) => label === value)?.[0] || value;
+const storedLevel = (value: string) => Object.entries(LEVEL_ALIASES).find(([, label]) => label === value)?.[0] || value;
 
 export default function OralPresentationsScreen() {
   const { t, language } = useAppPreferences();
@@ -37,6 +40,11 @@ export default function OralPresentationsScreen() {
   const [mode, setMode] = useState('ai');
   const [visibility, setVisibility] = useState('private');
   const [students, setStudents] = useState<PersonalizationStudent[]>([]);
+  const [programs, setPrograms] = useState<SmartToolProgram[]>([]);
+  const [programTopics, setProgramTopics] = useState<SmartToolProgramTopic[]>([]);
+  const [programId, setProgramId] = useState(String(params.programId || ''));
+  const [programTopicId, setProgramTopicId] = useState(String(params.programTopicId || ''));
+  const [programError, setProgramError] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState(String(params.studentId || ''));
   const [generated, setGenerated] = useState<GeneratedMaterial | null>(null);
   const [savedId, setSavedId] = useState('');
@@ -47,14 +55,19 @@ export default function OralPresentationsScreen() {
   const [reuseConfirmed, setReuseConfirmed] = useState(false);
   const family = oralFamily(subject === 'Other' ? customSubject : subject);
   useEffect(() => { let active = true; void getPersonalizationStudents().then((rows) => { if (active) setStudents(rows); }).catch(() => {}); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void getSmartToolPrograms().then((rows) => { if (!active) return; setPrograms(rows); const linked = rows.find((row) => row.id === params.programId); if (linked && params.programTopicId) { setSubject(SUBJECTS.find((value) => canonicalSubjectKey(value) === canonicalSubjectKey(linked.subject)) || 'Other'); setCustomSubject(linked.customSubject); setStage(STAGE_ALIASES[linked.stage] || linked.stage); setLevel(LEVEL_ALIASES[linked.level] || linked.level); } }).catch((reason) => { if (active) setProgramError(reason instanceof Error ? reason.message : t('smart.programLoadFailed')); }); return () => { active = false; }; }, [params.programId, params.programTopicId, t]);
+  useEffect(() => { if (!programId) return; let active = true; void getSmartToolProgramTopics(programId).then((rows) => { if (!active) return; setProgramTopics(rows); const linked = rows.find((row) => row.id === programTopicId); if (linked) { setTopic(linked.title); setObjective(linked.learningObjectives[0] || linked.title); } }).catch((reason) => { if (active) setProgramError(reason instanceof Error ? reason.message : t('smart.programLoadFailed')); }); return () => { active = false; }; }, [programId, programTopicId, t]);
   const selectedStudent = students.find((student) => student.id === selectedStudentId);
+  const matchingPrograms = programs.filter((item) => canonicalSubjectKey(item.subject) === canonicalSubjectKey(subject) && (subject !== 'Other' || item.customSubject.trim().toLowerCase() === customSubject.trim().toLowerCase()) && (STAGE_ALIASES[item.stage] || item.stage) === stage && (LEVEL_ALIASES[item.level] || item.level) === level);
+  const linkedTopic = programTopics.find((item) => item.id === programTopicId);
+  function clearProgramSelection() { setProgramId(''); setProgramTopicId(''); setProgramTopics([]); setProgramError(''); }
   const options = useMemo(() => oralExercises(family), [family]);
   const selectedExercise = options.includes(exerciseType) ? exerciseType : options[0];
   const input: SmartToolInput = {
-    kind: 'oral_presentation', subject, customSubject, topic: topic.trim(), stage, level,
+    kind: 'oral_presentation', subject, customSubject, topic: topic.trim(), stage: storedStage(stage), level: storedLevel(level),
     oralExerciseType: selectedExercise, objective: objective.trim(), maxDurationSeconds: Number(limit),
     language: studentLanguage, planLanguage: teacherLanguage, nativeLanguage: selectedStudent?.nativeLanguage || undefined, generationMode: mode,
-    duration: `${limit} seconds`, instructions, notes: '', visibility: 'private', reuseConfirmed, programId: String(params.programId || ''), programTopicId: String(params.programTopicId || ''),
+    duration: `${limit} seconds`, instructions, notes: '', visibility: 'private', reuseConfirmed, programId: linkedTopic ? programId : undefined, programTopicId: linkedTopic?.id,
   };
   const validation = !topic.trim() || !objective.trim() || (subject === 'Other' && !customSubject.trim()) ||
     !Number.isInteger(Number(limit)) || Number(limit) < 30 || Number(limit) > 600 ||
@@ -113,7 +126,7 @@ export default function OralPresentationsScreen() {
   return <AppShell title={t('smart.title')} eyebrow={t('smart.eyebrow')}>
     {params.programId && params.programTopicId ? <BackLink label={t('smart.backToProgram')} onPress={() => router.push({ pathname: '/resources', params: { kind: 'program', scope: 'mine', resourceId: params.programId } })} /> : null}
     <Text style={styles.intro}>{t('smart.intro')}</Text>
-    <SmartToolTabs active="oral_presentation" onSelect={(kind) => { if (kind !== 'oral_presentation') router.push({ pathname: '/smart-tools', params: { tool: kind, subject, customSubject, topic, stage, level, studentId: selectedStudentId, programId: String(params.programId || ''), programTopicId: String(params.programTopicId || '') } }); }} />
+    <SmartToolTabs active="oral_presentation" onSelect={(kind) => { if (kind !== 'oral_presentation') router.push({ pathname: '/smart-tools', params: { tool: kind, subject, customSubject, topic, stage, level, studentId: selectedStudentId, programId, programTopicId } }); }} />
     <View style={styles.columns}>
       <Panel style={styles.builder}>
         <Text style={styles.sectionTitle}>{t('smart.build', { tool: t('oral.title').toLocaleLowerCase(language) })}</Text>
@@ -127,14 +140,17 @@ export default function OralPresentationsScreen() {
         </Disclosure>
         <Disclosure title={t('smart.learningContext')} summary={`${subject} · ${stage} · ${level}`} defaultOpen>
           <View style={styles.fields}>
-            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.subject')}</Text><SelectField label={t('smart.subject')} value={subject} options={SUBJECTS.map((value) => ({ value, label: value }))} onChange={(value) => { setSubject(value); setExerciseType(oralExercises(oralFamily(value))[0]); }} /></View>
-            {subject === 'Other' ? <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.customSubject')}</Text><Field value={customSubject} onChangeText={setCustomSubject} maxLength={120} /></View> : null}
-            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.stage')}</Text><SelectField label={t('smart.stage')} value={stage} options={STAGES.map((value) => ({ value, label: value }))} onChange={setStage} /></View>
-            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.level')}</Text><SelectField label={t('smart.level')} value={level} options={LEVELS.map((value) => ({ value, label: value }))} onChange={setLevel} /></View>
+            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.subject')}</Text><SelectField label={t('smart.subject')} value={subject} options={SUBJECTS.map((value) => ({ value, label: value }))} onChange={(value) => { setSubject(value); setExerciseType(oralExercises(oralFamily(value))[0]); clearProgramSelection(); }} /></View>
+            {subject === 'Other' ? <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.customSubject')}</Text><Field value={customSubject} onChangeText={(value) => { setCustomSubject(value); clearProgramSelection(); }} maxLength={120} /></View> : null}
+            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.stage')}</Text><SelectField label={t('smart.stage')} value={stage} options={STAGES.map((value) => ({ value, label: value }))} onChange={(value) => { setStage(value); clearProgramSelection(); }} /></View>
+            <View style={styles.fieldCell}><Text style={styles.label}>{t('smart.level')}</Text><SelectField label={t('smart.level')} value={level} options={LEVELS.map((value) => ({ value, label: value }))} onChange={(value) => { setLevel(value); clearProgramSelection(); }} /></View>
             <View style={styles.fieldCell}><Text style={styles.label}>{t('oral.studentLanguage')}</Text><SelectField label={t('oral.studentLanguage')} value={studentLanguage} options={LANGUAGES.map((value) => ({ value, label: t(`language.${value}`) }))} onChange={(value) => setStudentLanguage(value as typeof studentLanguage)} /></View>
             <View style={styles.fieldCell}><Text style={styles.label}>{t('oral.teacherLanguage')}</Text><SelectField label={t('oral.teacherLanguage')} value={teacherLanguage} options={LANGUAGES.map((value) => ({ value, label: t(`language.${value}`) }))} onChange={(value) => setTeacherLanguage(value as typeof teacherLanguage)} /></View>
           </View>
-          <Text style={styles.label}>{t('smart.topic')}</Text><Field value={topic} onChangeText={setTopic} multiline numberOfLines={3} style={styles.topicField} placeholder={t('smart.topicPlaceholder')} maxLength={180} />
+          <Text style={styles.label}>{t('smart.programTopicSource')}</Text><SelectField label={t('smart.programTopicSource')} value={programId} options={[{ value: '', label: t('smart.manualTopic') }, ...matchingPrograms.map((item) => ({ value: item.id, label: item.title }))]} onChange={(value) => { setProgramId(value); setProgramTopicId(''); setProgramTopics([]); setProgramError(''); if (value) { setTopic(''); setObjective(''); } }} />
+          {programId ? <><Text style={styles.label}>{t('smart.programTopic')}</Text><SelectField label={t('smart.programTopic')} value={programTopicId} options={[{ value: '', label: t('smart.chooseProgramTopic') }, ...programTopics.map((item) => ({ value: item.id, label: `${item.unitTitle} · ${item.title}` }))]} onChange={(value) => { setProgramTopicId(value); const selected = programTopics.find((item) => item.id === value); if (selected) { setTopic(selected.title); setObjective(selected.learningObjectives[0] || selected.title); } else { setTopic(''); setObjective(''); } }} /></> : null}
+          {programError ? <Text style={styles.warning}>{programError}</Text> : null}
+          <Text style={styles.label}>{t('smart.topic')}</Text><Field value={topic} onChangeText={setTopic} editable={!linkedTopic} multiline numberOfLines={3} style={styles.topicField} placeholder={t('smart.topicPlaceholder')} maxLength={180} />
         </Disclosure>
         <Disclosure title={t('smart.toolOptions')} summary={`${oralExerciseLabel(selectedExercise, language)} · ${limit} s`} defaultOpen>
           <View style={styles.fields}>
