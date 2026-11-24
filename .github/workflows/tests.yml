@@ -133,6 +133,7 @@ jobs:
       - name: Verify document options and teacher record translations
         run: |
           node scripts/check-document-student-copy.cjs
+          node scripts/check-student-package-reports.cjs
           node scripts/check-teacher-record-copy.cjs
           node scripts/check-practice-pending-review.cjs
           node scripts/check-student-draft-save-queue.cjs
