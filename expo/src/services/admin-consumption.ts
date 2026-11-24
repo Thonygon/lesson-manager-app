@@ -1,7 +1,9 @@
 import { requireSupabase } from '@/lib/supabase';
 
 export type ConsumptionPeriod = { label: 'month' | 'year' | 'all'; delivered_resources: number; quota_used: number; ai_operations: number; failed_operations: number; refinements: number; program_unit_events: number; image_events: number; provider_attempts: number; pdf_handoffs: number; word_handoffs: number; failed_exports: number };
-export type ConsumptionDetail = { account: Record<string, unknown>; subscription: Record<string, unknown> | null; staffRoles: Record<string, unknown>[]; summary: { as_of: string; timezone: string; periods: ConsumptionPeriod[] }; operations: Record<string, unknown>[]; exports: Record<string, unknown>[] };
+export type ClosedUsageMonth = { month: string; delivered_resources: number; ai_operations: number; pdf_handoffs: number; word_handoffs: number };
+export type ProviderTokenPeriod = { label: ConsumptionPeriod['label']; input_tokens: number; output_tokens: number; cached_input_tokens: number; reported_attempts: number; unreported_attempts: number };
+export type ConsumptionDetail = { account: Record<string, unknown>; subscription: Record<string, unknown> | null; staffRoles: Record<string, unknown>[]; summary: { as_of: string; timezone: string; periods: ConsumptionPeriod[] }; usageDetail: { timezone: string; closed_months: ClosedUsageMonth[]; token_periods: ProviderTokenPeriod[] } | null; operations: Record<string, unknown>[]; exports: Record<string, unknown>[] };
 
 async function request(path: string): Promise<Record<string, unknown>> {
   const { data } = await requireSupabase().auth.getSession();

@@ -133,6 +133,7 @@
     {"name": "oral_generation_preserve_cross_surface_quota.sql", "sha256": "88c20b14e26273d24774c02c6522e37d5fec905d901ee99a76ee364ef02820ab"},
     {"name": "oral_generation_feedback_and_exports.sql", "sha256": "9c4d7c30c6b9b96b1ba78905dd026887b7ca90b3a7d9acfbbf149d7af447fd05"},
     {"name": "finalize_oral_generation.sql", "sha256": "b6fd627382805b44eabcee9b519635416b84837876334207a3dd1e204941cd68"},
-    {"name": "teacher_package_expiry_override.sql", "sha256": "46e85100cdcd9161fce94a30a16f046f7494738a3958bafff466b52d30458f01"}
+    {"name": "teacher_package_expiry_override.sql", "sha256": "46e85100cdcd9161fce94a30a16f046f7494738a3958bafff466b52d30458f01"},
+    {"name": "admin_account_usage_detail.sql", "sha256": "5bf243b5aff10ff38bfbea50f6bd04ed9c411cdd73792b465da4a6f9747e7716"}
   ]
 }
