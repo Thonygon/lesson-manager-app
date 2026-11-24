@@ -20,10 +20,12 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(''); const [messageTone, setMessageTone] = useState<'success' | 'error'>('error');
   const [page, setPage] = useState(1);
+  const [expiryConfirmation, setExpiryConfirmation] = useState('');
+  const [confirmedOverrideSignature, setConfirmedOverrideSignature] = useState('');
   const totalPages = Math.max(1, Math.ceil(rows.length / 8));
   const currentPage = Math.min(page, totalPages);
   const visible = rows.slice((currentPage - 1) * 8, currentPage * 8);
-  const update = (row: ClassioRecord, patch: Partial<Draft>) => { const id = String(row.id); setChanges((current) => ({ ...current, [id]: { ...(current[id] || draftFor(row)), ...patch } })); setMessage(''); };
+  const update = (row: ClassioRecord, patch: Partial<Draft>) => { const id = String(row.id); setChanges((current) => ({ ...current, [id]: { ...(current[id] || draftFor(row)), ...patch } })); setMessage(''); setExpiryConfirmation(''); setConfirmedOverrideSignature(''); };
   const changedRows = rows.filter((row) => changes[String(row.id)]);
 
   const apply = async () => {
@@ -34,11 +36,18 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
       if (!Number.isInteger(units) || units < 1 || units > 500 || !Number.isFinite(amount) || amount < 0 || !Number.isInteger(adjustment)) return setMessage(t('payments.bulkInvalidNumbers', { id: String(row.id) }));
       if (item.subject === 'Other' && !item.customSubject.trim()) return setMessage(t('payments.bulkInvalidSubject', { id: String(row.id) }));
     }
-    setBusy(true); setMessage('');
+    const overrides = changedRows.filter((row) => { const chosen = changes[String(row.id)].expiryDate; return chosen && chosen !== date(row.package_expiry_date) && chosen !== date(row.package_calculated_expiry_date); });
+    const overrideSignature = JSON.stringify(overrides.map((row) => [row.id, changes[String(row.id)].expiryDate, row.package_calculated_expiry_date]));
+    if (overrides.length && confirmedOverrideSignature !== overrideSignature) {
+      const details = overrides.map((row) => `${String(row.student || row.id)}: ${date(row.package_calculated_expiry_date) || '—'} → ${changes[String(row.id)].expiryDate}`).join(' · ');
+      setExpiryConfirmation(t('payments.bulkOverridePrompt', { count: overrides.length, details }));
+      return;
+    }
+    setExpiryConfirmation(''); setBusy(true); setMessage('');
     try {
       for (const row of changedRows) {
         const item = changes[String(row.id)];
-        const input = { student, lessonUnits: Number(item.units), paymentDate: item.paymentDate, paidAmount: Number(item.amount), currency: String(row.currency || 'TRY'), modality: item.modality, subject: item.subject, customSubject: item.customSubject, packageStartDate: item.startDate, packageExpiryDate: item.expiryDate, adjustmentUnits: Number(item.adjustment), normalized: item.normalized, normalizedNote: item.note };
+        const input = { student, lessonUnits: Number(item.units), paymentDate: item.paymentDate, paidAmount: Number(item.amount), currency: String(row.currency || 'TRY'), modality: item.modality, subject: item.subject, customSubject: item.customSubject, packageStartDate: item.startDate, packageExpiryDate: item.expiryDate !== date(row.package_expiry_date) ? (item.expiryDate === date(row.package_calculated_expiry_date) ? '' : item.expiryDate) : undefined, adjustmentUnits: Number(item.adjustment), normalized: item.normalized, normalizedNote: item.note };
         const payload = JSON.stringify(input); const key = String(row.id); const previous = pending.current.get(key);
         const requestId = previous?.payload === payload ? previous.requestId : crypto.randomUUID();
         pending.current.set(key, { payload, requestId });
@@ -70,10 +79,10 @@ export function PaymentBulkEditor({ student, records, onSaved }: { student: stri
           </View>
         </Panel>; })}
       </View></ScrollView>
-      <View style={styles.actions}><Pagination page={currentPage} totalPages={totalPages} totalItems={rows.length} onPageChange={setPage} disabled={busy} /><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? t('payments.bulkApplying') : t('payments.bulkApply', { count: changedRows.length })}</Button></View>
+      {expiryConfirmation ? <View style={styles.expiryConfirmation}><Text style={styles.expiryConfirmationText}>{expiryConfirmation}</Text><Button secondary onPress={() => { const overrides = changedRows.filter((row) => { const chosen = changes[String(row.id)].expiryDate; return chosen && chosen !== date(row.package_expiry_date) && chosen !== date(row.package_calculated_expiry_date); }); setConfirmedOverrideSignature(JSON.stringify(overrides.map((row) => [row.id, changes[String(row.id)].expiryDate, row.package_calculated_expiry_date]))); setExpiryConfirmation(''); }}>{t('payments.confirmExpiryOverride')}</Button></View> : null}<View style={styles.actions}><Pagination page={currentPage} totalPages={totalPages} totalItems={rows.length} onPageChange={setPage} disabled={busy} /><Button disabled={busy || changedRows.length === 0} onPress={() => void apply()}>{busy ? t('payments.bulkApplying') : t('payments.bulkApply', { count: changedRows.length })}</Button></View>
     </>}
     <ActionFeedback message={message} onDismiss={(shown) => setMessage((current) => current === shown ? '' : current)} tone={messageTone} />
   </View>;
 }
 
-const styles = StyleSheet.create({ root: { gap: 12 }, help: { color: colors.muted, fontSize: 12 }, table: { gap: 8, minWidth: 740 }, row: { padding: 14, gap: 8 }, heading: { color: colors.ink, fontWeight: '800' }, fields: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 }, cell: { width: 150, gap: 3 }, label: { color: colors.muted, fontSize: 10, fontWeight: '700' }, actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }, message: { color: colors.primary, fontSize: 12, fontWeight: '700' } });
+const styles = StyleSheet.create({ root: { gap: 12 }, help: { color: colors.muted, fontSize: 12 }, table: { gap: 8, minWidth: 740 }, row: { padding: 14, gap: 8 }, heading: { color: colors.ink, fontWeight: '800' }, fields: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 }, cell: { width: 150, gap: 3 }, label: { color: colors.muted, fontSize: 10, fontWeight: '700' }, expiryConfirmation: { backgroundColor: colors.warningSoft, borderRadius: 12, padding: 12, gap: 10, alignItems: 'flex-start' }, expiryConfirmationText: { color: colors.ink, fontSize: 12, lineHeight: 18 }, actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }, message: { color: colors.primary, fontSize: 12, fontWeight: '700' } });
