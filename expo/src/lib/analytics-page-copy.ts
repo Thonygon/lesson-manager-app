@@ -28,6 +28,7 @@ const entries: Record<string, [string, string, string]> = {
   'analyticsPage.unitsDelivered': ['Lesson units delivered', 'Unidades de clase impartidas', 'Verilen ders birimi'],
   'analyticsPage.studentsRepresented': ['Students represented', 'Estudiantes representados', 'Kapsanan öğrenci'],
   'analyticsPage.revenueTrend': ['Revenue trend', 'Tendencia de ingresos', 'Gelir eğilimi'],
+  'analyticsPage.trendSelectHint': ['Show this period’s full amount above the chart.', 'Muestra el importe completo de este periodo encima del gráfico.', 'Bu dönemin tam tutarını grafiğin üzerinde gösterir.'],
   'analyticsPage.trendCaption.week': ['Income by day this week.', 'Ingresos por día de esta semana.', 'Bu haftanın günlük geliri.'],
   'analyticsPage.trendCaption.month': ['Income by day this month; scroll to inspect every day.', 'Ingresos por día de este mes; desplázate para ver cada día.', 'Bu ayın günlük geliri; günleri görmek için kaydırın.'],
   'analyticsPage.trendCaption.year': ['Income by month this year.', 'Ingresos por mes de este año.', 'Bu yılın aylık geliri.'],

@@ -21,6 +21,7 @@ export function AdminConsumptionPanel({ userId, plans, refreshRevision = 0 }: { 
   if (error) return <Panel><Text style={styles.error}>{error}</Text></Panel>;
   if (!detail) return <Panel><LoadingState /></Panel>;
   const current = detail.summary.periods.find((item) => item.label === period);
+  const tokenPeriod = detail.usageDetail?.token_periods.find((item) => item.label === period);
   const subscription = detail.subscription;
   const activeSubscription = subscription?.manual_override === true || ['active', 'trialing'].includes(String(subscription?.subscription_status || ''));
   const planId = String(activeSubscription ? subscription?.plan_id || 'free' : detail.account.current_plan || 'free');
@@ -45,6 +46,25 @@ export function AdminConsumptionPanel({ userId, plans, refreshRevision = 0 }: { 
       { label: t('admin.usageFailed'), value: current.failed_operations + current.failed_exports },
     ]} />
       <Text style={styles.note}>{period === 'month' ? `${t('admin.usageQuota')}: ${current.quota_used} / ${limitLabel}. ` : ''}{t('admin.usageMethod')}</Text>
+      {tokenPeriod ? <View style={styles.block}>
+        <Text style={styles.subheading}>{t('admin.usageProviderTokens')}</Text>
+        <KpiGrid items={[
+          { label: t('admin.usageInputTokens'), value: tokenPeriod.input_tokens },
+          { label: t('admin.usageOutputTokens'), value: tokenPeriod.output_tokens },
+          { label: t('admin.usageCachedTokens'), value: tokenPeriod.cached_input_tokens },
+          { label: t('admin.usageReportedAttempts'), value: tokenPeriod.reported_attempts },
+          { label: t('admin.usageUnreportedAttempts'), value: tokenPeriod.unreported_attempts },
+        ]} />
+        <Text style={styles.note}>{t('admin.usageTokenScope')}</Text>
+      </View> : <Text style={styles.note}>{t('admin.usageDetailUnavailable')}</Text>}
+      {detail.usageDetail ? <View style={styles.block}>
+        <Text style={styles.subheading}>{t('admin.usageClosedMonths')}</Text>
+        <Text style={styles.note}>{t('admin.usageClosedMonthsHelp')}</Text>
+        {detail.usageDetail.closed_months.map((month) => <View key={month.month} style={styles.event}>
+          <Text style={styles.eventTitle}>{month.month}</Text>
+          <Text style={styles.note}>{t('admin.usageDelivered')}: {month.delivered_resources} · {t('admin.usageAiEvents')}: {month.ai_operations} · PDF: {month.pdf_handoffs} · Word: {month.word_handoffs}</Text>
+        </View>)}
+      </View> : null}
       <Text style={styles.subheading}>{t('admin.usageRecent')}</Text>
       {(detail.operations || []).slice(0, 12).map((operation) => <View key={String(operation.operation_id)} style={styles.event}><Text style={styles.eventTitle}>{operation.feature_name === 'generate_oral_presentation' ? t('admin.usageOralPresentation') : String(operation.feature_name).replaceAll('_', ' ')} · {t(`admin.value.${String(operation.status)}`)}</Text><Text style={styles.note}>{new Date(String(operation.started_at)).toLocaleString()} · {operation.charged === true ? t('admin.usageCharged') : t('admin.usageEventOnly')}{operation.error_kind ? ` · ${String(operation.error_kind)}` : ''}</Text></View>)}
       {(detail.exports || []).slice(0, 6).map((event) => <View key={String(event.event_id)} style={styles.event}><Text style={styles.eventTitle}>{String(event.format).toUpperCase()} · {String(event.document_kind).replaceAll('_', ' ')}</Text><Text style={styles.note}>{new Date(String(event.started_at)).toLocaleString()} · {String(event.status).replaceAll('_', ' ')}</Text></View>)}
@@ -52,4 +72,4 @@ export function AdminConsumptionPanel({ userId, plans, refreshRevision = 0 }: { 
   </Panel>;
 }
 
-const styles = StyleSheet.create({ panel: { gap: 14 }, meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, metaText: { color: colors.ink, fontSize: 13, fontWeight: '700' }, subheading: { color: colors.ink, fontSize: 15, fontWeight: '800' }, event: { borderTopWidth: 1, borderColor: colors.line, paddingTop: 8, gap: 3 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' }, note: { color: colors.muted, fontSize: 12, lineHeight: 18 }, error: { color: colors.danger, fontSize: 13 } });
+const styles = StyleSheet.create({ panel: { gap: 14 }, block: { gap: 9 }, meta: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, metaText: { color: colors.ink, fontSize: 13, fontWeight: '700' }, subheading: { color: colors.ink, fontSize: 15, fontWeight: '800' }, event: { borderTopWidth: 1, borderColor: colors.line, paddingTop: 8, gap: 3 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' }, note: { color: colors.muted, fontSize: 12, lineHeight: 18 }, error: { color: colors.danger, fontSize: 13 } });

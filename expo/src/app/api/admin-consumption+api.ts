@@ -37,11 +37,12 @@ export async function GET(request: Request) {
     const userId = input.get('userId') || '';
     if (userId) {
       if (!uuid(userId)) return json({ error: 'Choose a valid account.' }, 400);
-      const [profile, subscription, staffRoles, summary, tracking, operations, exports] = await Promise.all([
+      const [profile, subscription, staffRoles, summary, usageDetail, tracking, operations, exports] = await Promise.all([
         server.from('profiles').select('user_id,display_name,email,role,primary_role,can_teach,can_study,last_active_mode,account_status,current_plan,subscription_status,admin_notes,login_count,active_student_count,created_at').eq('user_id', userId).maybeSingle(),
         server.from('user_subscriptions').select('plan_id,subscription_status,manual_override').eq('user_id', userId).maybeSingle(),
         server.from('user_staff_roles').select('role_key,is_active').eq('user_id', userId),
         server.rpc('classio_admin_consumption_summary', { p_user_id: userId }),
+        server.rpc('classio_admin_account_usage_detail', { p_user_id: userId }),
         server.from('usage_tracking').select('ai_generations,monthly_reset_date').eq('user_id', userId).maybeSingle(),
         server.from('classio_ai_operations').select('operation_id,feature_name,modality,status,source,started_at,finished_at,error_kind,quota_eligible,quota_policy_version').eq('actor_user_id', userId).order('started_at', { ascending: false }).limit(25),
         server.from('classio_document_export_events').select('event_id,format,document_kind,variant,status,started_at,error_kind').eq('actor_user_id', userId).order('started_at', { ascending: false }).limit(15),
@@ -56,7 +57,8 @@ export async function GET(request: Request) {
       const monthlyUsed = String(tracking.data?.monthly_reset_date || '').slice(0, 7) === month ? Number(tracking.data?.ai_generations || 0) : 0;
       const rawSummary = summary.data as { periods?: Record<string, unknown>[] };
       const periodRows = Array.isArray(rawSummary?.periods) ? rawSummary.periods.map((row) => row.label === 'month' ? { ...row, quota_used: monthlyUsed } : row) : [];
-      return json({ account: profile.data, subscription: subscription.data, staffRoles: staffRoles.data || [], summary: { ...rawSummary, periods: periodRows }, operations: (operations.data || []).map((row) => ({ ...row, charged: charged.has(row.operation_id) })), exports: exports.data || [] });
+      if (usageDetail.error) console.warn('Account usage detail unavailable', usageDetail.error.code || 'unknown');
+      return json({ account: profile.data, subscription: subscription.data, staffRoles: staffRoles.data || [], summary: { ...rawSummary, periods: periodRows }, usageDetail: usageDetail.error ? null : usageDetail.data, operations: (operations.data || []).map((row) => ({ ...row, charged: charged.has(row.operation_id) })), exports: exports.data || [] });
     }
     const query = (input.get('q') || '').trim();
     if (query.length < 2 || query.length > 100) return json({ accounts: [] });
