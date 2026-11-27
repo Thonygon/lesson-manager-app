@@ -1,5 +1,9 @@
 # Auditoría financiera de Classio
 
+## Corte de código para lanzamiento oficial — 27-11-2026
+
+La medición de generaciones exitosas, eventos de IA y solicitudes PDF/Word, y la ficha individual Admin con meses cerrados y tokens informados, figuran como código/SQL publicados en el [registro único](../docs/AUDITORIAS_ESTADO_2026-10-22.md#reconciliación-de-código-para-lanzamiento-oficial--27-11-2026). Las notas antiguas de «migración sin aplicar» describen cortes previos. **Brecha de código condicional:** el catálogo admite cifras de límite PDF/Word, pero no existe reserva y rechazo atómicos de esas cuotas; deben implementarse antes de anunciar límites numéricos o retirarse de la oferta. **Oferta de pago:** S06 (cobro, webhook, reembolso, conciliación e impuestos aprobados) sigue pendiente; no afecta a una oferta gratuita sin checkout. Este corte no releyó saldos, facturas ni datos de usuarios.
+
 ## Reconciliación para beta gratuita — 06-11-2026
 
 La lectura monetaria de 22-10 sigue siendo el último corte cuantitativo, **no un saldo actual**. La anotación de entonces «migración sin aplicar» para `classio_ai_economic_events.sql` y `classio_document_export_events.sql` quedó superada: el [registro único](../docs/AUDITORIAS_ESTADO_2026-10-22.md#actualización-de-código-feedback-pedagógico-23-10-2026) documenta su aplicación en Supabase el 23-10 junto con los checksums y la publicación de Expo. En esta reauditoría no se consultó el ledger remoto. Instrumentación económica de IA, imagen y solicitudes PDF/Word: **cerrada en código y con aplicación documentada; pendiente de prueba beta y conciliación**. La telemetría no acredita descarga consumada, coste facturado ni margen. El vínculo esquema/unidades de programa también está aplicado; siguen faltando cierre del ciclo completo, operaciones sin recurso y contraste con facturas del proveedor.
