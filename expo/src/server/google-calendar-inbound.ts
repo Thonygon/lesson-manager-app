@@ -84,6 +84,20 @@ export function inboundDateRange(start: string, end: string) {
   return { first: first.toISOString(), lastExclusive: new Date(last.getTime() + 86_400_000).toISOString() };
 }
 
+export function eventOverlapsLocalRange(row: Pick<EventRow, 'start_at' | 'end_at' | 'all_day' | 'date_key'>, start: string, end: string, timezone: string) {
+  if (row.all_day) {
+    const last = row.end_at ? new Date(Date.parse(row.end_at) - 1).toISOString().slice(0, 10) : row.date_key;
+    return row.date_key <= end && last >= start;
+  }
+  if (!row.start_at || !row.end_at) return false;
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const localDate = (value: Date) => {
+    const parts = Object.fromEntries(formatter.formatToParts(value).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  return localDate(new Date(row.start_at)) <= end && localDate(new Date(Date.parse(row.end_at) - 1)) >= start;
+}
+
 async function selectedSources(uid: string) {
   const db = serverClient();
   const { data, error } = await db.from('classio_google_calendar_sources').select('calendar_id').eq('user_id', uid).eq('enabled', true).limit(MAX_CALENDARS);
@@ -200,16 +214,18 @@ async function refreshCalendarRange(uid: string, token: string, calendarId: stri
   if (sourceError) throw sourceError;
 }
 
-export async function getGoogleCalendarEvents(uid: string, start: string, end: string): Promise<{ events: GoogleCalendarEvent[]; warning: string }> {
+export async function getGoogleCalendarEvents(uid: string, start: string, end: string, timezone = 'UTC'): Promise<{ events: GoogleCalendarEvent[]; warning: string }> {
   const range = inboundDateRange(start, end);
+  try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { throw new Error('Choose a valid calendar timezone.'); }
   const ids = await selectedSources(uid);
   if (!ids.length) return { events: [], warning: '' };
   let warning = '';
+  // A one-day margin covers the UTC offsets on either side of the requested
+  // local dates, including daylight-saving transitions.
+  const paddedFirst = new Date(Date.parse(range.first) - 86_400_000).toISOString();
+  const paddedEnd = new Date(Date.parse(range.lastExclusive) + 86_400_000).toISOString();
   try {
     const token = await accessToken(uid);
-    // Include boundary events in every timezone, including recurring instances.
-    const paddedFirst = new Date(Date.parse(range.first) - 86_400_000).toISOString();
-    const paddedEnd = new Date(Date.parse(range.lastExclusive) + 86_400_000).toISOString();
     for (const id of ids) await refreshCalendarRange(uid, token, id, paddedFirst, paddedEnd);
   } catch (error) {
     warning = error instanceof Error ? error.message : 'Google Calendar could not refresh.';
@@ -218,10 +234,10 @@ export async function getGoogleCalendarEvents(uid: string, start: string, end: s
   const { data, error } = await db.from('classio_google_calendar_events')
     .select('calendar_id,event_id,title,start_at,end_at,all_day,date_key,status,html_link,etag')
     .eq('user_id', uid).in('calendar_id', ids).neq('status', 'cancelled')
-    .lt('start_at', range.lastExclusive).gt('end_at', range.first).order('start_at').limit(1500);
+    .lt('start_at', paddedEnd).gt('end_at', paddedFirst).order('start_at').limit(1500);
   if (error) throw error;
-  const rows = (data || []) as EventRow[];
-  if (rows.length === 1500) warning = [warning, 'This view contains too many Google events. Choose a shorter range.'].filter(Boolean).join(' ');
+  const rows = ((data || []) as EventRow[]).filter((row) => eventOverlapsLocalRange(row, start, end, timezone));
+  if ((data || []).length === 1500) warning = [warning, 'This view contains too many Google events. Choose a shorter range.'].filter(Boolean).join(' ');
   const hiddenKeys = await hiddenEventKeys(uid, ids);
   const { data: imports, error: importError } = await db.from('classio_google_calendar_imports')
     .select('calendar_id,event_id,student_id').eq('user_id', uid).in('calendar_id', ids).limit(5000);

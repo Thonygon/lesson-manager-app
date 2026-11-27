@@ -29,8 +29,8 @@ export async function saveGoogleCalendarChoices(calendarIds: string[]): Promise<
   return (result.calendars || []) as GoogleCalendarItem[];
 }
 
-export async function getGoogleCalendarRange(start: string, end: string): Promise<{ events: GoogleCalendarEvent[]; warning: string }> {
-  const result = await request(`/api/google-calendar-inbound?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+export async function getGoogleCalendarRange(start: string, end: string, timezone: string): Promise<{ events: GoogleCalendarEvent[]; warning: string }> {
+  const result = await request(`/api/google-calendar-inbound?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&timezone=${encodeURIComponent(timezone)}`);
   return { events: (result.events || []) as GoogleCalendarEvent[], warning: String(result.warning || '') };
 }
 

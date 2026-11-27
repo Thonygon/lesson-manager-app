@@ -60,12 +60,17 @@ async function tokenRequest(body: URLSearchParams) {
   return data;
 }
 
-async function saveTokens(uid: string, tokens: Tokens | null) {
-  const query = serverClient().from('classio_google_calendar_credentials');
+export async function saveTokens(uid: string, tokens: Tokens | null) {
+  const db = serverClient();
+  const query = db.from('classio_google_calendar_credentials');
   const { error } = tokens
     ? await query.upsert({ user_id: uid, tokens, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
     : await query.delete().eq('user_id', uid);
   if (error) throw error;
+  // Streamlit still reads profiles.gcal_tokens. Keep it current until that
+  // client has moved to the private credentials table too.
+  const { error: legacyError } = await db.from('profiles').update({ gcal_tokens: tokens ? JSON.stringify(tokens) : null }).eq('user_id', uid);
+  if (legacyError) throw legacyError;
 }
 
 async function loadTokens(uid: string): Promise<Tokens | null> {
@@ -80,8 +85,6 @@ export function googleConfigured() { return config().configured; }
 export async function googleConnected(uid: string) { return Boolean((await loadTokens(uid))?.refresh_token); }
 export async function disconnectGoogle(uid: string) {
   await saveTokens(uid, null);
-  const { error: legacyError } = await serverClient().from('profiles').update({ gcal_tokens: null }).eq('user_id', uid);
-  if (legacyError) throw legacyError;
   const { error } = await serverClient().from('classio_google_calendar_sources').delete().eq('user_id', uid);
   if (error) throw error;
 }
