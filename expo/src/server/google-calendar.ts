@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
-const googleScope = 'https://www.googleapis.com/auth/calendar.events';
+const googleScope = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly';
 const appUrl = 'https://app.masterclassio.com';
 type Tokens = { token?: string; refresh_token?: string; expires_at?: number };
 type FreezeRow = { student: string | null; start_date: string | null; end_date: string | null };
@@ -14,7 +14,7 @@ function config() {
   return { clientId, clientSecret, stateSecret, redirectUri, configured: Boolean(clientId && clientSecret && stateSecret) };
 }
 
-function serverClient() {
+export function serverClient() {
   const url = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
   const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) throw new Error('The calendar service is not configured.');
@@ -61,21 +61,30 @@ async function tokenRequest(body: URLSearchParams) {
 }
 
 async function saveTokens(uid: string, tokens: Tokens | null) {
-  const { error } = await serverClient().from('profiles').update({ gcal_tokens: tokens ? JSON.stringify(tokens) : null }).eq('user_id', uid);
+  const query = serverClient().from('classio_google_calendar_credentials');
+  const { error } = tokens
+    ? await query.upsert({ user_id: uid, tokens, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+    : await query.delete().eq('user_id', uid);
   if (error) throw error;
 }
 
 async function loadTokens(uid: string): Promise<Tokens | null> {
-  const { data, error } = await serverClient().from('profiles').select('gcal_tokens').eq('user_id', uid).limit(1).maybeSingle();
+  const { data, error } = await serverClient().from('classio_google_calendar_credentials').select('tokens').eq('user_id', uid).limit(1).maybeSingle();
   if (error) throw error;
-  const value = data?.gcal_tokens;
+  const value = data?.tokens;
   if (!value) return null;
   return typeof value === 'string' ? JSON.parse(value) as Tokens : value as Tokens;
 }
 
 export function googleConfigured() { return config().configured; }
 export async function googleConnected(uid: string) { return Boolean((await loadTokens(uid))?.refresh_token); }
-export async function disconnectGoogle(uid: string) { await saveTokens(uid, null); }
+export async function disconnectGoogle(uid: string) {
+  await saveTokens(uid, null);
+  const { error: legacyError } = await serverClient().from('profiles').update({ gcal_tokens: null }).eq('user_id', uid);
+  if (legacyError) throw legacyError;
+  const { error } = await serverClient().from('classio_google_calendar_sources').delete().eq('user_id', uid);
+  if (error) throw error;
+}
 
 export async function finishConnection(code: string, state: string) {
   const uid = stateUser(state); const cfg = config();
@@ -84,7 +93,7 @@ export async function finishConnection(code: string, state: string) {
   await saveTokens(uid, { token: String(data.access_token), refresh_token: String(data.refresh_token), expires_at: Date.now() + Number(data.expires_in || 3600) * 1000 });
 }
 
-async function accessToken(uid: string) {
+export async function accessToken(uid: string) {
   const stored = await loadTokens(uid); if (!stored?.refresh_token) throw new Error('Connect Google Calendar first.');
   if (stored.token && stored.expires_at && stored.expires_at > Date.now() + 60_000) return stored.token;
   const cfg = config();
