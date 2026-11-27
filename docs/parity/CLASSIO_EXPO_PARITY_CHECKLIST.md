@@ -247,7 +247,7 @@ Deployment target from 2026-10-01: `https://classio.expo.app`. Historical releas
 - [x] On 26-10-2026, the Calendar added a guided first-lesson state for teachers who already have students but no schedule: weekly and one-time form actions, with optional Google Calendar sync instructions in EN/ES/TR. TypeScript, targeted ESLint, and diff whitespace checks passed; beta keyboard and locale acceptance is still pending.
 - [x] The Calendar loading failure, retry, today marker, overflow count, and empty-agenda guidance now use EN/ES/TR catalog entries. Source: `streamlit/app_pages/app_page_calendar.py`; targets: `expo/src/app/(app)/calendar.tsx`, `expo/src/providers/app-preferences.tsx`. Direct TypeScript, targeted ESLint, and `git diff --check` passed.
 - [x] Calendar empty-state guidance now gives teachers with students a weekly, one-time, and optional Google Calendar path with direct form actions in EN/ES/TR.
-- [ ] Calendar locale and keyboard acceptance remains open for beta; form and agenda labels were completed in the subsequent slice above.
+- [x] Calendar locale and keyboard acceptance completed in the hosted beta on 27-11-2026: EN/ES/TR labels and dates rendered correctly; Enter opened a Google event and the Hidden events disclosure. The Google event actions, including Add student and Hide in Classio, were checked in the same row. This closes the Calendar acceptance item, not unrelated student flows.
 
 ## 2026-09-27 parity slice: student topic-resource reference signals
 
@@ -495,7 +495,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Collapsed Current schedule and Previous changes sections matching Streamlit expanders
 - [x] Recurring schedule editing with effective start/end dates
 - [x] Transactional future-version schedule split
-- [ ] Google Calendar integration
+- [x] Google Calendar two-way integration: outbound Classio lessons sync to Google; inbound Google events appear separately, can be linked to a selected student, hidden in Classio, and restored from Hidden events. An inbound event remains in Google when hidden. The teacher beta acceptance of import and hide was completed on 27-11-2026; additional tester incidents remain part of ongoing beta.
 - [x] Basic analytics snapshot
 - [x] Analytics periods: all-time, year, month, and week
 - [x] Streamlit-matched Analytics tab hierarchy for period, summary, revenue drivers, teaching activity, and risk/forecast

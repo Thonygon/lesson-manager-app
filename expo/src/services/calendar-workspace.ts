@@ -1,8 +1,9 @@
 import { requireSupabase } from '@/lib/supabase';
 import type { ClassioRecord } from '@/services/classio-data';
+import type { GoogleCalendarEvent } from '@/server/google-calendar-inbound';
 
 export type CalendarWorkspace = { schedules: ClassioRecord[]; overrides: ClassioRecord[]; freezes: ClassioRecord[] };
-export type CalendarEvent = { key: string; student: string; date: string; time: string; duration: number; source: 'weekly' | 'override'; note: string; scheduleId?: string; overrideId?: string };
+export type CalendarEvent = { key: string; student: string; date: string; time: string; duration: number; source: 'weekly' | 'override' | 'google'; note: string; scheduleId?: string; overrideId?: string; google?: GoogleCalendarEvent; title?: string; allDay?: boolean };
 function dateKey(date: Date) { const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0'); return `${y}-${m}-${d}`; }
 function parseLocalDate(value: string) { const [y, m, d] = value.split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); }
 function isWithin(date: string, start: unknown, end: unknown) { return (!start || String(start).slice(0, 10) <= date) && (!end || String(end).slice(0, 10) >= date); }
@@ -28,6 +29,43 @@ export function buildCalendarEvents(workspace: CalendarWorkspace, startDate: str
   for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) { const date = dateKey(cursor); const weekday = (cursor.getDay() + 6) % 7; for (const row of workspace.schedules) { const student = String(row.student || 'Student'); if (row.active === false || Number(row.weekday) !== weekday || !isWithin(date, row.start_date, row.end_date) || paused(student, date) || overrideKeys.has(`${student}|${date}`)) continue; events.push({ key: `s-${row.id}-${date}`, student, date, time: String(row.time || '').slice(0, 5), duration: Number(row.duration_minutes || 60), source: 'weekly', note: '', scheduleId: String(row.id) }); } }
   for (const row of workspace.overrides) { if (String(row.status || '').toLowerCase() !== 'scheduled' || !row.new_datetime) continue; const parsed = new Date(String(row.new_datetime)); if (Number.isNaN(parsed.valueOf())) continue; const date = dateKey(parsed); const student = String(row.student || 'Student'); if (date < startDate || date > endDate || paused(student, date)) continue; events.push({ key: `o-${row.id}`, student, date, time: parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }), duration: Number(row.duration_minutes || 60), source: 'override', note: String(row.note || ''), overrideId: String(row.id) }); }
   return events.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.student.localeCompare(b.student));
+}
+
+/** Keep external events separate from schedule overrides, including overlaps. */
+export function mergeGoogleCalendarEvents(classio: CalendarEvent[], google: GoogleCalendarEvent[], startDate: string, endDate: string): CalendarEvent[] {
+  const merged = [...classio];
+  for (const event of google) {
+    const start = new Date(event.startAt); const end = new Date(event.endAt);
+    if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf()) || end <= start) continue;
+    const firstDate = event.allDay && event.dateKey ? event.dateKey : dateKey(start);
+    const lastDate = event.allDay ? new Date(end.getTime() - 1).toISOString().slice(0, 10) : dateKey(new Date(end.getTime() - 1));
+    const from = firstDate < startDate ? startDate : firstDate;
+    const to = lastDate > endDate ? endDate : lastDate;
+    if (from > to) continue;
+    for (let cursor = parseLocalDate(from); dateKey(cursor) <= to; cursor.setDate(cursor.getDate() + 1)) {
+      const day = dateKey(cursor);
+      merged.push({
+        key: `g-${event.calendarId}-${event.id}-${day}`, date: day,
+        time: event.allDay ? '' : day === firstDate ? start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '00:00',
+        duration: Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)), source: 'google',
+        student: event.student, title: event.title, note: '', google: event, allDay: event.allDay,
+      });
+    }
+  }
+  return merged.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.key.localeCompare(b.key));
+}
+
+/** Only flag an exact start-time match after the teacher has chosen a student. */
+export function googleEventMatchesClassioLesson(classio: CalendarEvent[], google: GoogleCalendarEvent, student: string): boolean {
+  if (!student.trim() || google.allDay) return false;
+  const start = Date.parse(google.startAt);
+  if (!Number.isFinite(start)) return false;
+  const normalizedStudent = student.trim().toLocaleLowerCase();
+  return classio.some((event) => {
+    if (event.source === 'google' || event.student.trim().toLocaleLowerCase() !== normalizedStudent) return false;
+    const eventStart = Date.parse(`${event.date}T${event.time}`);
+    return Number.isFinite(eventStart) && Math.floor(eventStart / 60_000) === Math.floor(start / 60_000);
+  });
 }
 
 async function userId() { const { data, error } = await requireSupabase().auth.getUser(); if (error || !data.user) throw error ?? new Error('Your session has expired.'); return data.user.id; }

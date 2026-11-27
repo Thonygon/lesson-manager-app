@@ -6,7 +6,12 @@ const ts = require('typescript');
 const source = fs.readFileSync(path.join(__dirname, '../src/services/profile.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const moduleRef = { exports: {} };
-new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, (name) => name === '@/lib/supabase' ? { requireSupabase: () => { throw new Error('No database access in the mode fixture.'); } } : require(name));
+new Function('module', 'exports', 'require', compiled)(moduleRef, moduleRef.exports, (name) => {
+  if (name === '@/lib/supabase') return { requireSupabase: () => { throw new Error('No database access in the mode fixture.'); } };
+  if (name === '@/lib/hosting-api-url') return { hostingApiUrl: () => { throw new Error('No network access in the mode fixture.'); } };
+  if (name === '@/services/legal-acceptance') return { acceptCurrentLegalDocuments: () => { throw new Error('No legal acceptance in the mode fixture.'); } };
+  return require(name);
+});
 const { profileModeSaveFields } = moduleRef.exports;
 
 assert.deepEqual(profileModeSaveFields({ role: 'teacher', primary_role: 'teacher', can_teach: true, can_study: true, last_active_mode: 'teacher' }, 'student'), {
