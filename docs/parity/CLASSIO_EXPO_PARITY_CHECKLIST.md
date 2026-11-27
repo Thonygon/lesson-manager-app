@@ -496,6 +496,7 @@ Next recommendation slice: port scoped topic-resource alignment and ML feedback,
 - [x] Recurring schedule editing with effective start/end dates
 - [x] Transactional future-version schedule split
 - [x] Google Calendar two-way integration: outbound Classio lessons sync to Google; inbound Google events appear separately, can be linked to a selected student, hidden in Classio, and restored from Hidden events. An inbound event remains in Google when hidden. The teacher beta acceptance of import and hide was completed on 27-11-2026; additional tester incidents remain part of ongoing beta.
+- [x] Review follow-up, 27-11-2026: Expo writes refreshed Google credentials to both the private table and the legacy profile field while Streamlit remains active. Inbound day/week/month reads retain padded UTC fetch bounds and filter the result by the teacher's local timezone; UTC+10 and UTC−8 boundary fixtures pass.
 - [x] Basic analytics snapshot
 - [x] Analytics periods: all-time, year, month, and week
 - [x] Streamlit-matched Analytics tab hierarchy for period, summary, revenue drivers, teaching activity, and risk/forecast

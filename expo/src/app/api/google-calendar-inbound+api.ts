@@ -20,7 +20,8 @@ export async function GET(request: Request) {
     if (url.searchParams.get('mode') === 'hidden') return json(await listHiddenGoogleCalendarEvents(uid, Number(url.searchParams.get('page') || '1')));
     const start = url.searchParams.get('start') || '';
     const end = url.searchParams.get('end') || '';
-    return json(await getGoogleCalendarEvents(uid, start, end));
+    const timezone = url.searchParams.get('timezone') || 'UTC';
+    return json(await getGoogleCalendarEvents(uid, start, end, timezone));
   } catch (error) {
     return json({ error: message(error) }, /Sign in|expired/.test(message(error)) ? 401 : /teacher account/.test(message(error)) ? 403 : /range|calendar|student|Reconnect|Choose/.test(message(error)) ? 400 : 502);
   }

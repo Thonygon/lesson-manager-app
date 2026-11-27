@@ -52,9 +52,9 @@ export default function CalendarScreen() {
   useEffect(() => { let active = true; void googleCalendarConnected().then(async (connected) => {
     if (active) setGoogleConnected(connected);
     if (!connected) { if (active) { setGoogleEvents([]); setGoogleWarning(''); } return; }
-    const result = await getGoogleCalendarRange(range.start, range.end);
+    const result = await getGoogleCalendarRange(range.start, range.end, timezone);
     if (active) { setGoogleEvents(result.events); setGoogleWarning(result.warning); }
-  }).catch((cause) => { if (active) { setGoogleEvents([]); setGoogleWarning(cause instanceof Error ? cause.message : t('calendar.googleLoadFailed')); } }); return () => { active = false; }; }, [range.start, range.end, googleRefresh, t]);
+  }).catch((cause) => { if (active) { setGoogleEvents([]); setGoogleWarning(cause instanceof Error ? cause.message : t('calendar.googleLoadFailed')); } }); return () => { active = false; }; }, [range.start, range.end, googleRefresh, t, timezone]);
   useEffect(() => { if (!googleConnected) { setHiddenGoogleEvents([]); setHiddenGoogleTotal(0); return; } let active = true;
     void getHiddenGoogleCalendarEvents(hiddenGooglePage).then((result) => { if (active) { setHiddenGoogleEvents(result.events); setHiddenGoogleTotal(result.total); setHiddenGoogleError(''); if (hiddenGooglePage > 1 && !result.events.length) setHiddenGooglePage((page) => page - 1); } })
       .catch((cause) => { if (active) setHiddenGoogleError(cause instanceof Error ? cause.message : t('calendar.googleHiddenFailed')); });
