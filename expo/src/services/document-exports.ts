@@ -547,7 +547,8 @@ export function resourceSections(detail: Record<string, unknown>, variant: Resou
     const sections: ReportSection[] = [
       { heading: copy.instructions, lines: [String(oral.student_instructions || ''), `${copy.duration}: ${String(oral.max_duration_seconds || '')} s`].filter(Boolean) },
     ];
-    if (oral.stimulus) sections.push({ heading: copy.stimulus, lines: [String(oral.stimulus)] });
+    const picture = record(oral.picture);
+    if (oral.stimulus || picture.image_data_url) sections.push({ heading: copy.stimulus, lines: oral.stimulus ? [String(oral.stimulus)] : [], visuals: readyVisual(picture) ? [readyVisual(picture)!] : undefined, visualAfterLines: oral.stimulus ? 1 : undefined });
     if (oral.expected_response) sections.push({ heading: copy.expected, lines: [String(oral.expected_response)] });
     if (Array.isArray(oral.success_criteria) && oral.success_criteria.length) sections.push({ heading: copy.criteria, lines: oral.success_criteria.map(String) });
     if (variant !== 'student' && Array.isArray(oral.rubric)) sections.push({ heading: copy.rubric, lines: oral.rubric.map((item) => { const criterion = record(item); return `${String(criterion.label || '')}: ${String(criterion.max_score || '')}`; }) });

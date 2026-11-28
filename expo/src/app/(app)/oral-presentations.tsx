@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { AppShell } from '@/components/app-shell';
 import { BackLink } from '@/components/back-link';
 import { SmartToolTabs } from '@/components/smart-tool-tabs';
 import { ResourceEditor } from '@/components/resource-editor';
 import { GenerationIntentQuestion } from '@/components/generation-intent-question';
-import { ActionFeedback, Button, Disclosure, Field, HelpIcon, Panel, SelectField } from '@/components/ui';
+import { ActionFeedback, Button, Disclosure, EditIconButton, Field, HelpIcon, Panel, SelectField } from '@/components/ui';
 import { downloadResourceDocx, downloadResourcePdf } from '@/services/document-exports';
 import { useAppPreferences } from '@/providers/app-preferences';
 import { colors } from '@/theme';
 import { oralDocumentIssues, oralExerciseLabel, oralExercises, oralFamily, oralTemplateAvailable, type OralDocument } from '@/shared/oral-presentation';
 import { generateMaterial, getPersonalizationStudents, getSmartToolPrograms, getSmartToolProgramTopics, saveGeneratedMaterial, setGeneratedMaterialVisibility, updateGeneratedMaterial, type GeneratedMaterial, type PersonalizationStudent, type SmartToolInput, type SmartToolProgram, type SmartToolProgramTopic, GenerationReuseError } from '@/services/smart-tools';
 import { canonicalSubjectKey } from '@/lib/subjects';
+import { generateLessonPlanCover } from '@/services/resource-library';
 
 const SUBJECTS = ['English', 'Spanish', 'Turkish', 'Mathematics', 'Science', 'Music', 'Study skills', 'Other'];
 const STAGES = ['Early primary', 'Upper primary', 'Lower secondary', 'Upper secondary', 'Adult'];
@@ -48,6 +50,8 @@ export default function OralPresentationsScreen() {
   const [selectedStudentId, setSelectedStudentId] = useState(String(params.studentId || ''));
   const [generated, setGenerated] = useState<GeneratedMaterial | null>(null);
   const [savedId, setSavedId] = useState('');
+  const [showPreviewEditor, setShowPreviewEditor] = useState(false);
+  const [picturePending, setPicturePending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
@@ -76,8 +80,27 @@ export default function OralPresentationsScreen() {
 
   async function create() {
     if (validation) return;
-    setBusy(true); setMessage(''); setGenerated(null); setSavedId(''); setVisibility('private');
-    try { setGenerated(await generateMaterial(input, undefined, selectedStudent?.name || '', selectedStudentId)); }
+    setBusy(true); setMessage(''); setGenerated(null); setSavedId(''); setPicturePending(false); setShowPreviewEditor(false); setVisibility('private');
+    try {
+      const result = await generateMaterial(input, undefined, selectedStudent?.name || '', selectedStudentId);
+      setGenerated(result);
+      const saved = await saveGeneratedMaterial({ ...input, generationId: result.generationId }, result.document);
+      setSavedId(saved.id);
+      if (selectedExercise === 'picture_description') {
+        setPicturePending(true);
+        try {
+          const image = await generateLessonPlanCover(saved.id, 'oral_presentation', 'picture');
+          const updated = { ...result.document, picture: image };
+          await updateGeneratedMaterial('oral_presentation', saved.id, updated);
+          setGenerated({ ...result, document: updated });
+          setPicturePending(false);
+        } catch (reason) {
+          setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('oral.pictureFailed'));
+          return;
+        }
+      }
+      setMessageTone('success'); setMessage(t('oral.saved'));
+    }
     catch (reason) {
       setMessageTone('error');
       if (reason instanceof GenerationReuseError) setMessage(t('oral.similarFound'));
@@ -91,8 +114,41 @@ export default function OralPresentationsScreen() {
     setBusy(true); setMessage('');
     try {
       const saved = await saveGeneratedMaterial({ ...input, generationId: generated.generationId }, generated.document);
-      setSavedId(saved.id); setMessageTone('success'); setMessage(t('oral.saved'));
+      setSavedId(saved.id);
+      if (selectedExercise === 'picture_description') {
+        setPicturePending(true);
+        const image = await generateLessonPlanCover(saved.id, 'oral_presentation', 'picture');
+        const updated = { ...generated.document, picture: image };
+        await updateGeneratedMaterial('oral_presentation', saved.id, updated);
+        setGenerated({ ...generated, document: updated });
+        setPicturePending(false);
+      }
+      setMessageTone('success'); setMessage(t('oral.saved'));
     } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('smart.saveFailed')); }
+    finally { setBusy(false); }
+  }
+  async function retryPicture() {
+    if (!savedId || !generated || !picturePending) return;
+    setBusy(true); setMessage('');
+    try {
+      const image = await generateLessonPlanCover(savedId, 'oral_presentation', 'picture');
+      const updated = { ...generated.document, picture: image };
+      await updateGeneratedMaterial('oral_presentation', savedId, updated);
+      setGenerated({ ...generated, document: updated });
+      setPicturePending(false); setMessageTone('success'); setMessage(t('oral.saved'));
+    } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('oral.pictureFailed')); }
+    finally { setBusy(false); }
+  }
+  async function generateCover() {
+    if (!savedId || !generated || picturePending) return;
+    setBusy(true); setMessage('');
+    try {
+      const cover = await generateLessonPlanCover(savedId, 'oral_presentation');
+      const updated = { ...generated.document, cover_image: cover };
+      await updateGeneratedMaterial('oral_presentation', savedId, updated);
+      setGenerated({ ...generated, document: updated });
+      setMessageTone('success'); setMessage(t('planView.imageSaved'));
+    } catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('planView.imageFailed')); }
     finally { setBusy(false); }
   }
   async function edit(next: Record<string, unknown>) {
@@ -101,9 +157,9 @@ export default function OralPresentationsScreen() {
     if (issues.length) { setMessageTone('error'); setMessage(issues.join(' · ')); return; }
     setMessage('');
     if (savedId) {
-      try { await updateGeneratedMaterial('oral_presentation', savedId, next); setGenerated({ ...generated, document: next }); setMessageTone('success'); setMessage(t('oral.saved')); }
+      try { await updateGeneratedMaterial('oral_presentation', savedId, next); setGenerated({ ...generated, document: next }); setShowPreviewEditor(false); setMessageTone('success'); setMessage(t('oral.saved')); }
       catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('smart.saveFailed')); }
-    } else setGenerated({ ...generated, document: next });
+    } else { setGenerated({ ...generated, document: next }); setShowPreviewEditor(false); }
   }
   async function exportDocument(format: 'pdf' | 'docx', variant: 'student' | 'teacher') {
     if (!document) return;
@@ -166,7 +222,7 @@ export default function OralPresentationsScreen() {
         {message !== t('oral.similarFound') ? <ActionFeedback message={message} tone={messageTone} onDismiss={() => setMessage('')} /> : null}
       </Panel>
       <Panel style={styles.preview}>
-        <View style={styles.previewHeader}><View><Text style={styles.sectionTitle}>{t('smart.preview')}</Text><Text style={styles.sectionBody}>{document ? t('smart.previewReady') : busy ? t('smart.generatingHelp') : t('smart.previewEmpty')}</Text></View></View>
+        <View style={styles.previewHeader}><View><Text style={styles.sectionTitle}>{t('smart.preview')}</Text><Text style={styles.sectionBody}>{document ? t('smart.previewReady') : busy ? t('smart.generatingHelp') : t('smart.previewEmpty')}</Text></View>{document ? <EditIconButton accessibilityLabel={t('resources.editContent')} onPress={() => setShowPreviewEditor((value) => !value)} /> : null}</View>
         {document ? <ScrollView style={styles.previewScroll} contentContainerStyle={styles.previewContent}>
           <View style={styles.actions}>
             <Button secondary disabled={exporting} onPress={() => void exportDocument('pdf', 'student')}>{t('common.downloadStudentPdf')}</Button>
@@ -174,11 +230,13 @@ export default function OralPresentationsScreen() {
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'student')}>{t('common.downloadStudentWord')}</Button>
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'teacher')}>{t('common.downloadTeacherWord')}</Button>
             {savedId ? <Button secondary disabled={busy} onPress={() => void changeVisibility()}>{t(visibility === 'public' ? 'resources.makePrivate' : 'resources.makePublic')}</Button> : null}
-            {savedId ? <Button secondary onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId } })}>{t('smart.openSavedProgram')}</Button> : null}
-            {savedId ? <Button onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, assign: '1' } })}>{t('resources.assignToStudent')}</Button> : <Button disabled={busy} onPress={() => void save()}>{t('smart.saveLibrary')}</Button>}
+            {savedId ? <Button secondary disabled={busy} onPress={() => void generateCover()}>{t(document.cover_image?.image_data_url ? 'planView.regenerateImage' : 'planView.generateImage')}</Button> : null}
+            {savedId ? <Button secondary onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('smart.openSavedProgram')}</Button> : null}
+            {picturePending && savedId ? <Button disabled={busy} onPress={() => void retryPicture()}>{t('oral.retryPicture')}</Button> : null}
+            {savedId && !picturePending ? <Button onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, assign: '1', from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('resources.assignToStudent')}</Button> : !savedId ? <Button disabled={busy} onPress={() => void save()}>{t('smart.retrySave')}</Button> : null}
           </View>
-          <ResourceEditor document={generated!.document} onApply={(next) => void edit(next)} />
-          <View style={styles.document}><Text style={styles.documentTitle}>{document.title}</Text><Text style={styles.body}>{document.student_instructions}</Text>{document.stimulus ? <Text style={styles.stimulus}>{document.stimulus}</Text> : null}<Text style={styles.body}>{document.expected_response}</Text><Text style={styles.heading}>{t('oral.rubric')}</Text>{document.rubric.map((criterion) => <Text key={criterion.id} style={styles.body}>{criterion.label} · {criterion.max_score}</Text>)}</View>
+          {showPreviewEditor ? <ResourceEditor document={generated!.document} onApply={(next) => void edit(next)} /> : null}
+          <View style={styles.document}><Text style={styles.documentTitle}>{document.title}</Text><Text style={styles.body}>{document.student_instructions}</Text>{document.cover_image?.image_data_url ? <Image source={{ uri: document.cover_image.image_data_url }} style={{ width: '100%', aspectRatio: 16 / 9, borderRadius: 12 }} contentFit="cover" /> : null}{document.picture?.image_data_url ? <Image source={{ uri: document.picture.image_data_url }} style={{ width: '100%', aspectRatio: 16 / 9, borderRadius: 12 }} contentFit="contain" /> : null}{document.stimulus ? <Text style={styles.stimulus}>{document.stimulus}</Text> : null}<Text style={styles.body}>{document.expected_response}</Text><Text style={styles.heading}>{t('oral.rubric')}</Text>{document.rubric.map((criterion) => <Text key={criterion.id} style={styles.body}>{criterion.label} · {criterion.max_score}</Text>)}</View>
           {savedId && mode === 'ai' ? <GenerationIntentQuestion resourceType="oral_presentation" resourceId={savedId} surface="generation_preview" /> : null}
         </ScrollView> : <View style={styles.emptyPreview} accessibilityLiveRegion="polite">{busy ? <ActivityIndicator size="large" color={colors.primary} /> : <Text style={styles.emptyIcon}>🎙️</Text>}<Text style={styles.emptyTitle}>{t(busy ? 'smart.generating' : 'smart.ready')}</Text><Text style={styles.emptyBody}>{t(busy ? 'smart.generatingHelp' : 'smart.readyHelp')}</Text></View>}
       </Panel>

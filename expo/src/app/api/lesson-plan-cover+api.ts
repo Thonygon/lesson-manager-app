@@ -15,12 +15,13 @@ export async function POST(request: Request) {
     const openRouterKey = process.env.OPENROUTER_API_KEY || '';
     if (!token) return json({ error: 'Sign in to generate an image.' }, 401);
     if (!base || !anon || (!geminiKey && !openRouterKey)) return json({ error: 'Image generation is not configured.' }, 503);
-    const body = await request.json() as { id?: string; kind?: 'plan' | 'worksheet' | 'exam' };
+    const body = await request.json() as { id?: string; kind?: 'plan' | 'worksheet' | 'exam' | 'oral_presentation'; purpose?: 'cover' | 'picture' };
     const planId = String(body.id ?? '').trim();
     if (!planId || planId.length > 100 || !/^[a-zA-Z0-9-]+$/.test(planId)) return json({ error: 'Invalid lesson plan.' }, 400);
-    const kind = body.kind === 'worksheet' || body.kind === 'exam' ? body.kind : 'plan';
-    const table = kind === 'worksheet' ? 'worksheets' : kind === 'exam' ? 'quick_exams' : 'lesson_plans';
-    const payloadColumn = kind === 'worksheet' ? 'worksheet_json' : kind === 'exam' ? 'exam_data' : 'plan_json';
+    const kind = body.kind === 'worksheet' || body.kind === 'exam' || body.kind === 'oral_presentation' ? body.kind : 'plan';
+    const purpose = kind === 'oral_presentation' && body.purpose === 'picture' ? 'picture' : 'cover';
+    const table = kind === 'worksheet' ? 'worksheets' : kind === 'exam' ? 'quick_exams' : kind === 'oral_presentation' ? 'oral_presentations' : 'lesson_plans';
+    const payloadColumn = kind === 'worksheet' ? 'worksheet_json' : kind === 'exam' ? 'exam_data' : kind === 'oral_presentation' ? 'oral_data' : 'plan_json';
     const levelColumn = kind === 'exam' ? 'level' : 'level_or_band';
     const headers = { apikey: anon, Authorization: `Bearer ${token}`, Accept: 'application/json' };
     const auth = await fetch(`${base}/auth/v1/user`, { headers, cache: 'no-store' });
@@ -38,7 +39,10 @@ export async function POST(request: Request) {
     const row = rows[0];
     if (!row) return json({ error: 'Only the owner can generate an image.' }, 403);
     const plan = row[payloadColumn] && typeof row[payloadColumn] === 'object' ? row[payloadColumn] as Record<string, unknown> : {};
-    const prompt = `Asset type: Classio ${kind === 'worksheet' ? 'worksheet' : kind === 'exam' ? 'exam' : 'lesson plan'} gallery cover image. Title/context: ${String(row.title || plan.title || '').slice(0, 200)}. Subject: ${String(row.subject || '').slice(0, 80)}. Topic: ${String(row.topic || '').slice(0, 120)}. Learner stage: ${String(row.learner_stage || '').slice(0, 80)}. Level/band: ${String(row[levelColumn] || '').slice(0, 40)}. Wide 16:9 modern educational illustration, one clear age-appropriate teaching scene, polished resource-library cover. Absolutely no text, letters, numbers, captions, logos, labels, or watermarks.`;
+    if (purpose === 'picture' && String(plan.exercise_type) !== 'picture_description') return json({ error: 'This oral activity does not need a description picture.' }, 400);
+    const prompt = purpose === 'picture'
+      ? `Create the actual picture a learner will describe aloud in a Classio oral exercise. Subject: ${String(row.subject || '').slice(0, 80)}. Topic: ${String(row.topic || '').slice(0, 120)}. Objective: ${String(plan.objective || '').slice(0, 240)}. Scene brief: ${String(plan.stimulus || '').slice(0, 500)}. Age/stage: ${String(row.learner_stage || '').slice(0, 80)}. Make a specific, observable 16:9 scene with enough concrete details for a student to describe. No text, letters, numbers, captions, logos, labels, or watermarks.`
+      : `Asset type: Classio ${kind === 'worksheet' ? 'worksheet' : kind === 'exam' ? 'exam' : kind === 'oral_presentation' ? 'oral presentation' : 'lesson plan'} gallery cover image. Title/context: ${String(row.title || plan.title || '').slice(0, 200)}. Subject: ${String(row.subject || '').slice(0, 80)}. Topic: ${String(row.topic || '').slice(0, 120)}. Learner stage: ${String(row.learner_stage || '').slice(0, 80)}. Level/band: ${String(row[levelColumn] || '').slice(0, 40)}. Wide 16:9 modern educational illustration, one clear age-appropriate teaching scene, polished resource-library cover. Absolutely no text, letters, numbers, captions, logos, labels, or watermarks.`;
     const configuredProviders = [
       { provider: 'openrouter' as const, key: openRouterKey, model: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-3.1-flash-image' },
       { provider: 'gemini' as const, key: geminiKey, model: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image' },
@@ -46,7 +50,7 @@ export async function POST(request: Request) {
     const economicContext: AiEconomicContext = { base, serverKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '', actorUserId: user.id, source: 'expo' };
     if (!economicContext.serverKey) return json({ error: 'AI usage recording is not configured.' }, 503);
     const noteUnavailable = async (reason: string) => {
-      const recorded = await recordAiFallback(base, economicContext.serverKey, `cover_${kind}`, 'unavailable', reason);
+      const recorded = await recordAiFallback(base, economicContext.serverKey, purpose === 'picture' ? 'oral_picture_description' : `cover_${kind}`, 'unavailable', reason);
       if (!recorded) console.error('AI cover fallback event could not be recorded', { kind, reason });
     };
     if (!configuredProviders.length) { await noteUnavailable('provider_not_configured'); return json({ error: 'Image generation is unavailable right now.', code: 'provider_unavailable' }, 503); }
@@ -57,7 +61,7 @@ export async function POST(request: Request) {
     let operationId = '';
     let attemptId = '';
     try {
-      operationId = await beginAiOperation(economicContext, `cover_${kind}`, 'image');
+      operationId = await beginAiOperation(economicContext, purpose === 'picture' ? 'oral_picture_description' : `cover_${kind}`, 'image');
       let noCredit = true;
       for (const [index, provider] of providers.entries()) {
         attemptId = await beginProviderAttempt(economicContext, operationId, index + 1, provider.provider, provider.model, 'image');
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
           try { await finishAiOperation(economicContext, operationId, 'success'); }
           catch { await finishAiOperation(economicContext, operationId, 'success'); }
           const completedOperationId = operationId; operationId = '';
-          return json({ cover_image: { generator: 'classio_ai_resource_cover_v1', operation_id: completedOperationId, image_data_url: `data:${mimeType || 'image/png'};base64,${imageData}`, resource_type: kind === 'worksheet' ? 'Worksheet' : kind === 'exam' ? 'Exam' : 'Lesson plan' } });
+          return json({ cover_image: { generator: purpose === 'picture' ? 'classio_ai_oral_picture_v1' : 'classio_ai_resource_cover_v1', status: 'ready', operation_id: completedOperationId, image_data_url: `data:${mimeType || 'image/png'};base64,${imageData}`, resource_type: kind === 'worksheet' ? 'Worksheet' : kind === 'exam' ? 'Exam' : kind === 'oral_presentation' ? 'Oral presentation' : 'Lesson plan' } });
         } catch (error) {
           if (finalizingSuccess) {
             console.error('AI image success could not be confirmed', error);
