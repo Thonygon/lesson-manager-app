@@ -92,10 +92,20 @@ assert.ok(matchingStudent.some((section) => section.table?.some((row) => row.inc
 assert.ok(!JSON.stringify(matchingStudent).includes('Hola → Hello'));
 assert.ok(JSON.stringify(matchingTeacher).includes('Hola → Hello'));
 assert.deepEqual(matchingStudent.find((section) => section.heading === 'Match the items').table[0], ['1. Hola', '[   ]', 'a) Goodbye']);
+const prelabelledMatching = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'matching', matching_pairs: [{ left: '1. 1) Ir al parque', right: 'A. (A) Go to the park' }, { left: '2. Leer', right: 'B) Read' }] } }, 'student');
+assert.deepEqual(prelabelledMatching.find((section) => section.heading === 'Match the items').table, [
+  ['1. Ir al parque', '[   ]', 'a) Read'],
+  ['2. Leer', '[   ]', 'b) Go to the park'],
+]);
 const mappedMatching = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'matching', matching_pairs: [{ left: { Cat: 'Gato' }, right: { value: 'Animal' } }, { left: '{"key":"Dog"}', right: { value: 'Pet' } }] } }, 'student');
 assert.deepEqual(mappedMatching.find((section) => section.heading === 'Match the items').table[0], ['1. Cat', '[   ]', 'a) Pet']);
 const mappedExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'matching', title: 'Match', questions: [{ left: { key: 'A' }, right: { value: 'One' } }, { left: { key: 'B' }, right: { value: 'Two' } }] }] } }, 'student');
 assert.deepEqual(mappedExam.find((section) => section.heading === 'Match').table[0], ['1. A', '[   ]', 'a) Two']);
+const prelabelledExam = loaded.exports.resourceSections({ exam_data: { sections: [{ type: 'matching', title: 'Match', questions: [{ left: '1. Apple', right: 'A) Manzana' }, { left: '2) Pear', right: '(B) Pera' }] }] } }, 'student');
+assert.deepEqual(prelabelledExam.find((section) => section.heading === 'Match').table, [
+  ['1. Apple', '[   ]', 'a) Pera'],
+  ['2. Pear', '[   ]', 'b) Manzana'],
+]);
 const directExam = loaded.exports.resourceSections({ sections: [{ type: 'matching', title: 'Direct exam', questions: [{ left: { key: 'A' }, right: { value: 'One' } }] }] }, 'student');
 assert.deepEqual(directExam.find((section) => section.heading === 'Direct exam').table[0], ['1. A', '[   ]', 'a) One']);
 const trueFalse = loaded.exports.resourceSections({ worksheet_json: { worksheet_type: 'true_false', source_text: 'Water can freeze.', true_false_statements: ['Water can become ice.'], answer_key: '1. True' } }, 'student');
