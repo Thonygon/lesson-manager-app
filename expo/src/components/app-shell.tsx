@@ -17,6 +17,7 @@ const NAV = [
   { href: '/dashboard', icon: '⌂', labelKey: 'nav.home', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/student-home', icon: '⌂', labelKey: 'nav.home', roles: ['student'] },
   { href: '/students', icon: '◉', labelKey: 'nav.students', roles: ['teacher', 'school_admin', 'admin'] },
+  { href: '/assignments', icon: '▣', labelKey: 'nav.assignments', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/lessons', icon: '◷', labelKey: 'nav.lessons', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/payments', icon: '◫', labelKey: 'nav.payments', roles: ['teacher', 'school_admin', 'admin'] },
   { href: '/calendar', icon: '□', labelKey: 'nav.calendar', roles: ['teacher', 'school_admin', 'admin'] },
@@ -79,6 +80,15 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
     if (compact) setMobileNavigationOpen((open) => !open);
     else setDesktopCollapsed((collapsed) => { desktopNavigationCollapsed = !collapsed; return !collapsed; });
   };
+  const openInboxItem = (item: import('@/services/app-notifications').AppNotification) => {
+    void inbox.markRead(item.key);
+    setInboxOpen(false);
+    if (typeof item.href !== 'string' && item.href.pathname === '/oral-assignment') {
+      router.push({ ...item.href, params: { ...item.href.params, ...(pathname !== '/oral-assignment' ? { from: pathname } : {}) } } as Href);
+    } else if (typeof item.href !== 'string' && item.href.pathname === '/help') {
+      router.push({ ...item.href, params: { ...item.href.params, from: workspacePath } } as Href);
+    } else router.push(item.href);
+  };
   const headerActions = <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
     <Pressable accessibilityRole="button" accessibilityLabel={`${t('dashboard.notifications')}: ${inbox.unread.length}`} accessibilityState={{ expanded: inboxOpen }} onPress={() => { setInboxOpen(true); void inbox.refresh(true); }} style={styles.bell}><Text style={styles.bellIcon}>🔔</Text>{inbox.unread.length ? <View style={styles.badge}><Text style={styles.badgeText}>{inbox.unread.length > 99 ? '99+' : inbox.unread.length}</Text></View> : null}</Pressable>
     {compact ? <Pressable accessibilityRole="link" accessibilityLabel={`${t('nav.profile')}: ${identityName}`} accessibilityState={{ selected: pathname === '/profile' }} onPress={() => router.push('/profile')} style={({ pressed }) => [styles.compactIdentity, phone && styles.compactIdentityPhone, pathname === '/profile' && styles.identityButtonActive, pressed && styles.identityButtonPressed]}>{profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.identityAvatar} /> : <View style={styles.identityFallback}><Text style={styles.identityInitial}>{identityInitial}</Text></View>}<Text numberOfLines={1} style={styles.compactIdentityName}>{identityName}</Text></Pressable> : null}
@@ -134,7 +144,7 @@ export function AppShell({ title, eyebrow, notifications, scrollToTopToken, chil
               {inbox.items.length ? inbox.items.map((item) => {
                 const isUnread = inbox.unread.some((unread) => unread.key === item.key);
                 const itemTitle = item.titleText || t(item.titleKey, item.titleParams);
-                return <View key={item.key} style={[styles.inboxItem, isUnread && styles.inboxItemUnread]}><Pressable accessibilityRole="button" accessibilityLabel={itemTitle} onPress={() => { void inbox.markRead(item.key); setInboxOpen(false); router.push(typeof item.href !== 'string' && item.href.pathname === '/help' ? { ...item.href, params: { ...item.href.params, from: workspacePath } } as Href : item.href); }} style={styles.inboxItemLink}><Text style={styles.inboxIcon}>{item.icon}</Text><View style={styles.inboxCopy}><Text style={styles.inboxItemTitle}>{itemTitle}</Text>{item.detail ? <Text style={styles.inboxBody}>{item.detail}</Text> : null}</View>{isUnread ? <View style={styles.unreadDot} /> : null}</Pressable><Pressable accessibilityRole="button" accessibilityLabel={t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')} onPress={() => void (isUnread ? inbox.markRead(item.key) : inbox.markUnread(item.key))} style={styles.inboxReadAction}><Text style={styles.inboxReadActionText}>{t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')}</Text></Pressable><Text style={styles.inboxArrow}>→</Text></View>;
+                return <View key={item.key} style={[styles.inboxItem, isUnread && styles.inboxItemUnread]}><Pressable accessibilityRole="button" accessibilityLabel={itemTitle} onPress={() => openInboxItem(item)} style={styles.inboxItemLink}><Text style={styles.inboxIcon}>{item.icon}</Text><View style={styles.inboxCopy}><Text style={styles.inboxItemTitle}>{itemTitle}</Text>{item.detail ? <Text style={styles.inboxBody}>{item.detail}</Text> : null}</View>{isUnread ? <View style={styles.unreadDot} /> : null}</Pressable><Pressable accessibilityRole="button" accessibilityLabel={t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')} onPress={() => void (isUnread ? inbox.markRead(item.key) : inbox.markUnread(item.key))} style={styles.inboxReadAction}><Text style={styles.inboxReadActionText}>{t(isUnread ? 'notifications.markRead' : 'notifications.markUnread')}</Text></Pressable><Text style={styles.inboxArrow}>→</Text></View>;
               }) : !inbox.loading ? <Text style={styles.inboxEmpty}>{t('dashboard.noNotifications')}</Text> : null}
             </ScrollView>
           </View>
