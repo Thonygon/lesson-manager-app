@@ -38,7 +38,7 @@ const DIRECT_IMAGE_KEYS = [
 ];
 const BASE64_IMAGE_KEYS = ['b64_json', 'image_base64', 'cover_image_base64', 'thumbnail_base64', 'base64'];
 const NESTED_IMAGE_KEYS = [
-  'cover_image', 'visual_support', 'hero_image', 'image', 'thumbnail', 'program_data',
+  'cover_image', 'visual_support', 'hero_image', 'image', 'thumbnail', 'picture', 'program_data',
   'program_json', 'plan_json', 'lesson_plan_json', 'worksheet_json', 'exam_data', 'oral_data',
   'content_snapshot',
 ];

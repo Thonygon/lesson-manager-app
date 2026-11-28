@@ -90,7 +90,7 @@ export default function OralPresentationsScreen() {
         setPicturePending(true);
         try {
           const image = await generateLessonPlanCover(saved.id, 'oral_presentation', 'picture');
-          const updated = { ...result.document, picture: image };
+          const updated = { ...result.document, picture: image, cover_image: image };
           await updateGeneratedMaterial('oral_presentation', saved.id, updated);
           setGenerated({ ...result, document: updated });
           setPicturePending(false);
@@ -118,7 +118,7 @@ export default function OralPresentationsScreen() {
       if (selectedExercise === 'picture_description') {
         setPicturePending(true);
         const image = await generateLessonPlanCover(saved.id, 'oral_presentation', 'picture');
-        const updated = { ...generated.document, picture: image };
+        const updated = { ...generated.document, picture: image, cover_image: image };
         await updateGeneratedMaterial('oral_presentation', saved.id, updated);
         setGenerated({ ...generated, document: updated });
         setPicturePending(false);
@@ -128,11 +128,11 @@ export default function OralPresentationsScreen() {
     finally { setBusy(false); }
   }
   async function retryPicture() {
-    if (!savedId || !generated || !picturePending) return;
+    if (!savedId || !generated || document?.exercise_type !== 'picture_description') return;
     setBusy(true); setMessage('');
     try {
       const image = await generateLessonPlanCover(savedId, 'oral_presentation', 'picture');
-      const updated = { ...generated.document, picture: image };
+      const updated = { ...generated.document, picture: image, cover_image: image };
       await updateGeneratedMaterial('oral_presentation', savedId, updated);
       setGenerated({ ...generated, document: updated });
       setPicturePending(false); setMessageTone('success'); setMessage(t('oral.saved'));
@@ -140,7 +140,7 @@ export default function OralPresentationsScreen() {
     finally { setBusy(false); }
   }
   async function generateCover() {
-    if (!savedId || !generated || picturePending) return;
+    if (!savedId || !generated || picturePending || document?.exercise_type === 'picture_description') return;
     setBusy(true); setMessage('');
     try {
       const cover = await generateLessonPlanCover(savedId, 'oral_presentation');
@@ -233,9 +233,9 @@ export default function OralPresentationsScreen() {
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'student')}>{t('common.downloadStudentWord')}</Button>
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'teacher')}>{t('common.downloadTeacherWord')}</Button>
             {savedId ? <Button secondary disabled={busy || (visibility !== 'public' && document?.exercise_type === 'picture_description' && (picturePending || !document.picture?.image_data_url))} onPress={() => void changeVisibility()}>{t(visibility === 'public' ? 'resources.makePrivate' : 'resources.makePublic')}</Button> : null}
-            {savedId ? <Button secondary disabled={busy || picturePending} onPress={() => void generateCover()}>{t(document.cover_image?.image_data_url ? 'planView.regenerateImage' : 'planView.generateImage')}</Button> : null}
+            {savedId && document.exercise_type !== 'picture_description' ? <Button secondary disabled={busy || picturePending} onPress={() => void generateCover()}>{t(document.cover_image?.image_data_url ? 'planView.regenerateImage' : 'planView.generateImage')}</Button> : null}
             {savedId ? <Button secondary onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('smart.openSavedProgram')}</Button> : null}
-            {picturePending && savedId ? <Button disabled={busy} onPress={() => void retryPicture()}>{t('oral.retryPicture')}</Button> : null}
+            {savedId && document.exercise_type === 'picture_description' ? <Button secondary disabled={busy} onPress={() => void retryPicture()}>{t(picturePending ? 'oral.retryPicture' : 'planView.regenerateImage')}</Button> : null}
             {savedId && !picturePending ? <Button onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, assign: '1', from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('resources.assignToStudent')}</Button> : !savedId ? <Button disabled={busy} onPress={() => void save()}>{t('smart.retrySave')}</Button> : null}
           </View>
           {showPreviewEditor ? <ResourceEditor document={generated!.document} onApply={(next) => void edit(next)} /> : null}
