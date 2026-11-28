@@ -5,10 +5,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 
 import { useAuth } from '@/providers/auth-provider';
+import { useAppPreferences } from '@/providers/app-preferences';
 import { usePrivilegedAccess } from '@/providers/privileged-access-provider';
 import { loadAppNotifications, type AppNotification } from '@/services/app-notifications';
 import { DEFAULT_NOTIFICATION_PREFERENCES, notificationCategory, parseNotificationPreferences, type NotificationCategory, type NotificationPreferences } from '@/lib/notification-preferences';
 import { helpWorkspacePath } from '@/lib/route-access';
+import { prepareClassioChime, requestSystemNotificationPermission, showSystemNotification, systemNotificationPermission, type SystemNotificationPermission } from '@/lib/web-notification-alerts';
 
 const REFRESH_MS = 120000;
 type NotificationState = {
@@ -16,6 +18,10 @@ type NotificationState = {
   unread: AppNotification[];
   preferences: NotificationPreferences;
   preferencesReady: boolean;
+  systemPermission: SystemNotificationPermission;
+  systemAlertsEnabled: boolean;
+  enableSystemNotifications: () => Promise<void>;
+  disableSystemNotifications: () => Promise<void>;
   setPreference: (category: NotificationCategory, enabled: boolean) => Promise<void>;
   markUnread: (key: string) => Promise<void>;
   loading: boolean;
@@ -24,11 +30,12 @@ type NotificationState = {
   markRead: (key: string) => Promise<void>;
   publishPaymentAlerts: (items: { key: string; icon: string; title: string; body?: string; href: unknown }[]) => void;
 };
-const empty: NotificationState = { items: [], unread: [], preferences: DEFAULT_NOTIFICATION_PREFERENCES, preferencesReady: false, setPreference: async () => {}, markUnread: async () => {}, loading: false, error: '', refresh: async () => {}, markRead: async () => {}, publishPaymentAlerts: () => {} };
+const empty: NotificationState = { items: [], unread: [], preferences: DEFAULT_NOTIFICATION_PREFERENCES, preferencesReady: false, systemPermission: 'unsupported', systemAlertsEnabled: false, enableSystemNotifications: async () => {}, disableSystemNotifications: async () => {}, setPreference: async () => {}, markUnread: async () => {}, loading: false, error: '', refresh: async () => {}, markRead: async () => {}, publishPaymentAlerts: () => {} };
 const Context = createContext<NotificationState>(empty);
 
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const { user, profile } = useAuth();
+  const { t } = useAppPreferences();
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ from?: string }>();
   const access = usePrivilegedAccess();
@@ -40,11 +47,16 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
   const canHandleHelp = access.isAdmin || access.staffRoles.includes('developer');
   const storageKey = `classio:notifications:read:v1:${userId}:${role}`;
   const preferencesKey = `classio:notifications:preferences:v1:${userId}:${role}`;
+  const systemAlertsKey = `classio:notifications:system:v1:${userId}:${role}`;
   const [items, setItems] = useState<AppNotification[]>([]);
   const [paymentAlerts, setPaymentAlerts] = useState<AppNotification[]>([]);
   const [readKeys, setReadKeys] = useState<string[]>([]);
   const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [systemPermission, setSystemPermission] = useState<SystemNotificationPermission>('unsupported');
+  const [systemAlertsEnabled, setSystemAlertsEnabled] = useState(false);
+  const systemAlertsEnabledRef = useRef(false);
+  const knownSystemKeys = useRef<Set<string> | null>(null);
   const readKeysRef = useRef<string[]>([]);
   const preferencesRef = useRef<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
   const [loading, setLoading] = useState(false);
@@ -62,6 +74,14 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
       try {
         const next = await loadAppNotifications(userId, role, canHandleHelp);
         if (current !== generation.current) return;
+        if (knownSystemKeys.current === null) knownSystemKeys.current = new Set(next.map((item) => item.key));
+        else {
+          const fresh = next.filter((item) => systemAlertsEnabledRef.current && !knownSystemKeys.current?.has(item.key) && !readKeysRef.current.includes(item.key) && preferencesRef.current[notificationCategory(item.key)]);
+          for (const item of fresh) {
+            void showSystemNotification(item, item.titleText || t(item.titleKey, item.titleParams)).catch((reason) => console.warn('System notification could not be shown', reason));
+          }
+          next.forEach((item) => knownSystemKeys.current?.add(item.key));
+        }
         setItems(next);
         setError('');
         lastRefresh.current = Date.now();
@@ -73,7 +93,7 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
     })();
     inFlight.current = request;
     try { await request; } finally { if (inFlight.current === request) inFlight.current = null; }
-  }, [canHandleHelp, role, userId]);
+  }, [canHandleHelp, role, t, userId]);
   useEffect(() => {
     generation.current += 1;
     lastRefresh.current = 0;
@@ -85,9 +105,13 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
     preferencesRef.current = { ...DEFAULT_NOTIFICATION_PREFERENCES };
     setPreferences(preferencesRef.current);
     setPreferencesReady(false);
+    systemAlertsEnabledRef.current = false;
+    setSystemAlertsEnabled(false);
+    knownSystemKeys.current = null;
+    setSystemPermission(systemNotificationPermission());
     if (!userId) return;
     let active = true;
-    void Promise.all([AsyncStorage.getItem(storageKey), AsyncStorage.getItem(preferencesKey)]).then(([saved, storedPreferences]) => {
+    void Promise.all([AsyncStorage.getItem(storageKey), AsyncStorage.getItem(preferencesKey), AsyncStorage.getItem(systemAlertsKey)]).then(([saved, storedPreferences, storedSystemAlerts]) => {
       if (!active) return;
       let parsed: unknown = [];
       try { parsed = saved ? JSON.parse(saved) : []; } catch { /* Ignore corrupt local read state. */ }
@@ -95,14 +119,42 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
       setReadKeys(readKeysRef.current);
       preferencesRef.current = parseNotificationPreferences(storedPreferences);
       setPreferences(preferencesRef.current);
+      systemAlertsEnabledRef.current = storedSystemAlerts === 'enabled';
+      setSystemAlertsEnabled(systemAlertsEnabledRef.current);
     }).catch(() => {}).finally(() => { if (active) setPreferencesReady(true); });
     void refresh(true);
     return () => { active = false; };
-  }, [preferencesKey, refresh, storageKey, userId]);
+  }, [preferencesKey, refresh, storageKey, systemAlertsKey, userId]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') void refresh(); });
     return () => subscription.remove();
   }, [refresh]);
+  useEffect(() => {
+    if (!userId) return;
+    const timer = setInterval(() => { if (AppState.currentState === 'active') void refresh(); }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refresh, userId]);
+  const enableSystemNotifications = useCallback(async () => {
+    try {
+      const permission = await requestSystemNotificationPermission();
+      setSystemPermission(permission);
+      if (permission === 'granted') {
+        systemAlertsEnabledRef.current = true;
+        setSystemAlertsEnabled(true);
+        await AsyncStorage.setItem(systemAlertsKey, 'enabled');
+      }
+    } catch (reason) {
+      console.warn('Device notifications could not be enabled', reason);
+      setSystemPermission('unsupported');
+    }
+  }, [systemAlertsKey]);
+  const disableSystemNotifications = useCallback(async () => {
+    systemAlertsEnabledRef.current = false;
+    setSystemAlertsEnabled(false);
+    try { await AsyncStorage.setItem(systemAlertsKey, 'disabled'); }
+    catch (reason) { console.warn('Device notification preference could not be saved', reason); }
+  }, [systemAlertsKey]);
+  useEffect(() => prepareClassioChime(), [systemPermission]);
   const markRead = useCallback(async (key: string) => {
     const next = [...new Set([...readKeysRef.current, key])].slice(-500);
     readKeysRef.current = next;
@@ -127,7 +179,7 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
   }, []);
   const allItems = useMemo(() => [...items, ...paymentAlerts].filter((item) => preferences[notificationCategory(item.key)]), [items, paymentAlerts, preferences]);
   const unread = useMemo(() => allItems.filter((item) => !readKeys.includes(item.key)), [allItems, readKeys]);
-  const value = useMemo(() => ({ items: allItems, unread, preferences, preferencesReady, setPreference, markUnread, loading, error, refresh, markRead, publishPaymentAlerts }), [allItems, unread, preferences, preferencesReady, setPreference, markUnread, loading, error, refresh, markRead, publishPaymentAlerts]);
+  const value = useMemo(() => ({ items: allItems, unread, preferences, preferencesReady, systemPermission, systemAlertsEnabled, enableSystemNotifications, disableSystemNotifications, setPreference, markUnread, loading, error, refresh, markRead, publishPaymentAlerts }), [allItems, unread, preferences, preferencesReady, systemPermission, systemAlertsEnabled, enableSystemNotifications, disableSystemNotifications, setPreference, markUnread, loading, error, refresh, markRead, publishPaymentAlerts]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
