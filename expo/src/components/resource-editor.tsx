@@ -8,7 +8,7 @@ import { colors } from '@/theme';
 type PathPart = string | number;
 type EditableField = { path: PathPart[]; kind: 'scalar' | 'list'; value: string; original: unknown };
 
-const SKIP_KEYS = new Set(['visual_support', 'visual_supports', '_visual_support_status', 'cover_image', 'avatar_url', 'image_url', 'image', 'text_blocks', 'text_kind', 'worksheet_type']);
+const SKIP_KEYS = new Set(['visual_support', 'visual_supports', '_visual_support_status', 'cover_image', 'picture', 'avatar_url', 'image_url', 'image', 'text_blocks', 'text_kind', 'worksheet_type']);
 const ROOT_SKIP_KEYS = new Set(['id', 'user_id', 'title', 'subject', 'learner_stage', 'level_or_band', 'plan_language', 'student_material_language', 'source_type']);
 const isScalar = (value: unknown) => value === null || ['string', 'number', 'boolean'].includes(typeof value);
 

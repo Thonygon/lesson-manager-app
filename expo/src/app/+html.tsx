@@ -34,7 +34,7 @@ const staleChunkRecovery = `
     var title=document.createElement('strong');title.textContent=words[0];
     var detail=document.createElement('p');detail.textContent=words[1];
     var actions=document.createElement('div');actions.className='classio-chunk-actions';
-    var later=document.createElement('button');later.type='button';later.textContent=words[3];later.onclick=function(){box.remove();};
+    var later=document.createElement('button');later.type='button';later.textContent=words[3];later.onclick=function(){box.remove();shown=false;};
     var reload=document.createElement('button');reload.type='button';reload.textContent=words[2];reload.className='classio-chunk-reload';
     reload.onclick=function(){
       var url=new URL(location.href);

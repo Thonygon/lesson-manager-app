@@ -7,6 +7,8 @@ export type OralDocument = {
   student_instructions: string; stimulus: string; expected_response: string;
   max_duration_seconds: number; success_criteria: string[]; rubric: OralCriterion[];
   teacher_notes: string; plan_language: string; student_material_language: string;
+  picture?: { image_data_url: string; operation_id?: string };
+  cover_image?: { image_data_url: string; operation_id?: string };
 };
 const RUBRIC: Record<OralFamily, string[]> = {
   language: ['Task achievement', 'Fluency', 'Accuracy', 'Vocabulary', 'Intelligibility'],

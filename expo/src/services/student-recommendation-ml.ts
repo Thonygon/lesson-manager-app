@@ -144,7 +144,7 @@ export function buildStudentRecommendationModel(workspace: StudentWorkspace, now
   }
   for (const row of history.assignments) {
     const kind = key(row.assignment_type);
-    if (!['worksheet', 'exam', 'video'].includes(kind)) continue;
+    if (!['worksheet', 'exam', 'video', 'oral_presentation'].includes(kind)) continue;
     const subject = canonicalSubjectKey(row.subject_key);
     const status = key(row.status);
     const score = number(row.score_pct) / 100;

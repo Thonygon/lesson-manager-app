@@ -253,13 +253,22 @@ export async function refineResourceContent(kind: 'plan' | 'worksheet' | 'exam',
   return result.document;
 }
 
-export async function generateLessonPlanCover(id: string, kind: 'plan' | 'worksheet' | 'exam' = 'plan'): Promise<Record<string, unknown>> {
+export async function generateLessonPlanCover(id: string, kind: 'plan' | 'worksheet' | 'exam' | 'oral_presentation' = 'plan', purpose: 'cover' | 'picture' = 'cover'): Promise<Record<string, unknown>> {
   const { data } = await requireSupabase().auth.getSession();
   if (!data.session?.access_token) throw new Error('Your Classio session has expired.');
-  const response = await fetch('/api/lesson-plan-cover', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ id, kind }) });
+  const response = await fetch('/api/lesson-plan-cover', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ id, kind, purpose }) });
   const result = await response.json() as { cover_image?: Record<string, unknown>; error?: string; code?: string };
   if (!response.ok || !result.cover_image) throw new Error(result.code === 'image_provider_credit' ? 'image_provider_credit' : result.error || 'Classio could not generate the image.');
-  return result.cover_image;
+  const cover = result.cover_image;
+  const imageUrl = String(cover.image_data_url || '');
+  if (!imageUrl.startsWith('data:image/webp;base64,') || typeof document === 'undefined') return cover;
+  // PDF and Word exporters accept PNG/JPEG. Normalize provider WebP while the
+  // generated picture is still in memory, before saving the oral snapshot.
+  const image = new Image(); image.src = imageUrl; await image.decode();
+  const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d'); if (!context) throw new Error('The generated image could not be prepared for export.');
+  context.drawImage(image, 0, 0);
+  return { ...cover, image_data_url: canvas.toDataURL('image/jpeg', 0.88), mime_type: 'image/jpeg' };
 }
 
 export async function saveLessonPlanCover(id: string, cover: Record<string, unknown>, kind: 'plan' | 'worksheet' | 'exam' = 'plan'): Promise<void> {
@@ -292,6 +301,12 @@ export async function updateResourceState(kind: PublicResourceKind, id: string, 
   if (kind === 'program' && updates.is_public === true) {
     const { data: program, error } = await client.from('learning_programs').select('program_data').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
     if (error || !program || !programReady(program.program_data as Record<string, unknown>)) throw error ?? new Error('Complete every program unit before publishing.');
+  }
+  if (kind === 'oral_presentation' && updates.is_public === true) {
+    const { data: oral, error } = await client.from('oral_presentations').select('oral_data').eq('id', id).eq('user_id', userData.user.id).maybeSingle();
+    if (error || !oral) throw error ?? new Error('The oral activity is unavailable.');
+    const document = oral.oral_data as Record<string, unknown>;
+    if (document?.exercise_type === 'picture_description' && !String((document.picture as Record<string, unknown> | undefined)?.image_data_url || '').startsWith('data:image/')) throw new Error('oral.pictureRequired');
   }
   const archiveChange = updates.status === 'archived' || updates.status === 'active';
   let payload = updates.status === 'archived' ? { ...updates, is_public: false } : updates;
@@ -459,6 +474,8 @@ export async function assignResource(input: { resource: PublicResource; detail: 
     if (input.oralAuthorizationAcknowledged !== true) throw new Error('oral.teacherAuthorizationRequired');
     const oralData = input.detail.oral_data;
     if (!oralData || typeof oralData !== 'object' || Array.isArray(oralData)) throw new Error('The oral activity is incomplete.');
+    const oral = oralData as Record<string, unknown>;
+    if (oral.exercise_type === 'picture_description' && (!oral.picture || typeof oral.picture !== 'object' || !String((oral.picture as Record<string, unknown>).image_data_url || '').startsWith('data:image/'))) throw new Error('oral.pictureRequired');
     snapshot.oral_data = oralData;
     snapshot.audio_authorization_acknowledged = true;
     snapshot.audio_authorization_acknowledged_at = now;

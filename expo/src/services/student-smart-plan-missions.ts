@@ -33,7 +33,17 @@ export function smartPlanMissionResources(resources: PublicResource[], subject: 
   };
   const worksheets = rank('worksheet');
   const exams = rank('exam');
-  return [...worksheets, ...exams];
+  if (goal !== 'improve_speaking') return [...worksheets, ...exams];
+  // Spoken tasks require a teacher assignment and human review. Never offer an
+  // unassigned public oral resource as a mission the learner cannot submit.
+  const oralAssignments: PublicResource[] = (workspace?.assignments ?? []).flatMap((row) => {
+    if (String(row.assignment_type) !== 'oral_presentation' || !['assigned', 'started', 'submitted', 'graded', 'completed'].includes(String(row.status))) return [];
+    const sourceId = String(row.source_record_id || row.id || '');
+    if (!sourceId || canonicalSubjectKey(row.subject_key || row.subject_label) !== canonicalSubjectKey(subject)) return [];
+    const resource: PublicResource = { id: sourceId, kind: 'oral_presentation', title: String(row.title || ''), subject: String(row.subject_key || row.subject_label || ''), topic: String(row.topic || ''), stage: '', level: '', author: '', description: String(row.teacher_note || ''), imageUrl: '', createdAt: String(row.created_at || ''), raw: { assignmentId: String(row.id), assignmentStatus: String(row.status) } };
+    return missionTopicFit(task, resource) >= 0.55 ? [resource] : [];
+  });
+  return [...worksheets, ...exams, ...oralAssignments];
 }
 
 export function passedMissionResourceIds(workspace: StudentWorkspace | null, minimumScore = 70): Set<string> {
@@ -51,6 +61,11 @@ export function passedMissionResourceIds(workspace: StudentWorkspace | null, min
     passed.add(`${kind}:${id}`);
     const assignment = assignments.get(id);
     if (assignment && String(assignment.assignment_type || '') === kind && assignment.source_record_id) passed.add(`${kind}:${assignment.source_record_id}`);
+  }
+  for (const assignment of workspace?.assignments ?? []) {
+    if (String(assignment.assignment_type) === 'oral_presentation' && ['graded', 'completed'].includes(String(assignment.status)) && Number(assignment.score_pct || 0) >= minimumScore) {
+      passed.add(`oral_presentation:${String(assignment.source_record_id || assignment.id)}`);
+    }
   }
   return passed;
 }
