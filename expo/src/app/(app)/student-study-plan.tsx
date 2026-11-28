@@ -67,11 +67,11 @@ function generatedTasks(plan: Pick<SmartPlan, 'subject' | 'goal' | 'minutes'>, w
     seenTopics.add(topicKey);
     fallback.push(task);
   }
-  if (fallback.length) return fallback;
+  if (fallback.length || plan.goal !== 'improve_speaking') return fallback;
   for (const assignment of workspace?.assignments ?? []) {
     if (fallback.length >= count) break;
     if (text(assignment.assignment_type) !== 'oral_presentation' || canonicalSubjectKey(assignment.subject_key || assignment.subject_label) !== canonicalSubjectKey(plan.subject)) continue;
-    const task = { id: `${today()}_oral_${text(assignment.id)}`, title: text(assignment.topic || assignment.title), detail: text(assignment.teacher_note), minutes: Math.max(5, Math.round(plan.minutes / count)), category: 'practice', xp: 15, done: false };
+    const task = { id: `${today()}_oral_${text(assignment.id)}`, title: text(assignment.topic || assignment.title), detail: text(assignment.teacher_note), minutes: Math.max(5, Math.round(plan.minutes / count)), category: 'speaking', xp: 15, done: false };
     if (smartPlanMissionResources(resources, plan.subject, task, plan.goal, workspace).length) fallback.push(task);
   }
   return fallback;

@@ -33,6 +33,7 @@ export function smartPlanMissionResources(resources: PublicResource[], subject: 
   };
   const worksheets = rank('worksheet');
   const exams = rank('exam');
+  if (goal !== 'improve_speaking') return [...worksheets, ...exams];
   // Spoken tasks require a teacher assignment and human review. Never offer an
   // unassigned public oral resource as a mission the learner cannot submit.
   const oralAssignments: PublicResource[] = (workspace?.assignments ?? []).flatMap((row) => {

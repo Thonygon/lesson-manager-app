@@ -50,6 +50,7 @@ assert.equal(missions.smartPlanMissionComplete([], passed), false);
 const oralWorkspace = { assignments: [{ id: 91, assignment_type: 'oral_presentation', source_record_id: 501, title: 'Shopping for Food conversation', topic: 'Shopping for Food', subject_key: 'english', status: 'submitted', score_pct: null }], sessions: [] };
 const oralMission = missions.smartPlanMissionResources([], 'english', { title: 'Topic 4: Shopping for Food' }, 'improve_speaking', oralWorkspace);
 assert.equal(oralMission.length, 1);
+assert.deepEqual(missions.smartPlanMissionResources([], 'english', { title: 'Topic 4: Shopping for Food' }, 'general_practice', oralWorkspace), []);
 assert.equal(oralMission[0].kind, 'oral_presentation');
 assert.equal(oralMission[0].raw.assignmentId, '91');
 assert.equal(missions.smartPlanMissionComplete(oralMission, missions.passedMissionResourceIds(oralWorkspace)), false);

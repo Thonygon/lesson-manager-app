@@ -174,6 +174,9 @@ export default function OralPresentationsScreen() {
   async function changeVisibility() {
     if (!savedId) return;
     const next = visibility === 'public' ? 'private' : 'public';
+    if (next === 'public' && document?.exercise_type === 'picture_description' && (picturePending || !document.picture?.image_data_url)) {
+      setMessageTone('error'); setMessage(t('oral.pictureRequired')); return;
+    }
     setBusy(true); setMessage('');
     try { await setGeneratedMaterialVisibility('oral_presentation', savedId, next); setVisibility(next); setMessageTone('success'); setMessage(t(next === 'public' ? 'smart.visibilityPublic' : 'smart.visibilityPrivate')); }
     catch (reason) { setMessageTone('error'); setMessage(reason instanceof Error ? reason.message : t('smart.visibilityFailed')); }
@@ -229,8 +232,8 @@ export default function OralPresentationsScreen() {
             <Button secondary disabled={exporting} onPress={() => void exportDocument('pdf', 'teacher')}>{t('common.downloadTeacherPdf')}</Button>
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'student')}>{t('common.downloadStudentWord')}</Button>
             <Button secondary disabled={exporting} onPress={() => void exportDocument('docx', 'teacher')}>{t('common.downloadTeacherWord')}</Button>
-            {savedId ? <Button secondary disabled={busy} onPress={() => void changeVisibility()}>{t(visibility === 'public' ? 'resources.makePrivate' : 'resources.makePublic')}</Button> : null}
-            {savedId ? <Button secondary disabled={busy} onPress={() => void generateCover()}>{t(document.cover_image?.image_data_url ? 'planView.regenerateImage' : 'planView.generateImage')}</Button> : null}
+            {savedId ? <Button secondary disabled={busy || (visibility !== 'public' && document?.exercise_type === 'picture_description' && (picturePending || !document.picture?.image_data_url))} onPress={() => void changeVisibility()}>{t(visibility === 'public' ? 'resources.makePrivate' : 'resources.makePublic')}</Button> : null}
+            {savedId ? <Button secondary disabled={busy || picturePending} onPress={() => void generateCover()}>{t(document.cover_image?.image_data_url ? 'planView.regenerateImage' : 'planView.generateImage')}</Button> : null}
             {savedId ? <Button secondary onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('smart.openSavedProgram')}</Button> : null}
             {picturePending && savedId ? <Button disabled={busy} onPress={() => void retryPicture()}>{t('oral.retryPicture')}</Button> : null}
             {savedId && !picturePending ? <Button onPress={() => router.push({ pathname: '/resources', params: { kind: 'oral_presentation', scope: 'mine', resourceId: savedId, assign: '1', from: 'smart-tools', tool: 'oral_presentation', returnNonce: String(Date.now()) } })}>{t('resources.assignToStudent')}</Button> : !savedId ? <Button disabled={busy} onPress={() => void save()}>{t('smart.retrySave')}</Button> : null}
