@@ -317,6 +317,15 @@ function withoutQuestionNumber(value: string): string {
   return value.trim().replace(/^(?:\d{1,3}[.)]\s+)+/, '').trim();
 }
 
+// Matching generators may store display labels in each side. The renderer owns
+// those labels, so remove them before assigning the shuffled display order.
+function matchingSide(input: unknown, prefer: 'key' | 'value'): string {
+  const value = mappingSide(input, prefer);
+  return (prefer === 'key'
+    ? value.replace(/^(?:(?:\d{1,3}[.)]|\(\d{1,3}\))\s*)+/u, '')
+    : value.replace(/^(?:(?:[A-Z][.)]|\([A-Z]\))\s*)+/iu, '')).trim();
+}
+
 function numberedOption(value: unknown, index: number): string {
   const letter = String.fromCharCode(65 + index);
   // Generated options can already include their letter. Remove only the letter
@@ -374,7 +383,7 @@ function examSections(detail: Record<string, unknown>, variant: ResourceVariant,
       const questions = list(section.questions);
       const tableRows = sectionType === 'matching' ? questions.map((question, index) => {
         const pair = record(question);
-        return [`${index + 1}. ${mappingSide(pair.left, 'key')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${mappingSide(record(questions[(index + 1) % questions.length]).right, 'value')}`];
+        return [`${index + 1}. ${matchingSide(pair.left, 'key')}`, '[   ]', `${String.fromCharCode(97 + index)}) ${matchingSide(record(questions[(index + 1) % questions.length]).right, 'value')}`];
       }) : sectionType === 'true_false' ? questions.map((question, index) => {
         const row = record(question);
         const prompt = typeof question === 'string' ? question : String(row.stem || row.text || row.question || row.sentence || row.prompt || '');
@@ -453,8 +462,8 @@ function worksheetSections(detail: Record<string, unknown>, variant: ResourceVar
       }
     } else if (worksheet.worksheet_type === 'matching') {
       const pairs = list(worksheet.matching_pairs).map(record);
-      const left = (pairs.length ? pairs.map((pair) => pair.left ?? pair.term) : list(worksheet.left_items)).map((item) => mappingSide(item, 'key'));
-      const right = (pairs.length ? pairs.map((pair) => pair.right ?? pair.definition) : list(worksheet.right_items)).map((item) => mappingSide(item, 'value'));
+      const left = (pairs.length ? pairs.map((pair) => pair.left ?? pair.term) : list(worksheet.left_items)).map((item) => matchingSide(item, 'key'));
+      const right = (pairs.length ? pairs.map((pair) => pair.right ?? pair.definition) : list(worksheet.right_items)).map((item) => matchingSide(item, 'value'));
       const choices = right.length > 1 ? [...right.slice(1), right[0]] : right;
       const lines = left.map((item, index) => `${index + 1}. ${String(item || '')}   [   ]`);
       lines.push(...choices.map((item, index) => `${String.fromCharCode(97 + index)}) ${String(item || '')}`));
